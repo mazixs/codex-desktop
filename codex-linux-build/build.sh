@@ -173,7 +173,14 @@ extract_app() {
     rm -rf "$EXTRACTED_DIR"
     mkdir -p "$EXTRACTED_DIR"
 
-    7z x -y "$DMG_FILE" "-o$EXTRACTED_DIR" >/dev/null
+    # 7z exits with code 2 when it skips macOS /Applications symlinks
+    # inside DMGs ("Dangerous link path was ignored") — this is expected.
+    local seven_z_rc=0
+    7z x -y "$DMG_FILE" "-o$EXTRACTED_DIR" >/dev/null || seven_z_rc=$?
+    if [ "$seven_z_rc" -ge 3 ]; then
+        err "7z extraction failed with exit code $seven_z_rc"
+        exit 1
+    fi
 
     log "Extracting app.asar..."
     npx --yes asar@3.2.0 extract \
