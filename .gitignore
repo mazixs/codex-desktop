@@ -1,0 +1,18 @@
+# Build directories
+codex_extracted/
+dist/
+native-rebuild/
+
+# Node modules
+node_modules/
+
+# Mac artifacts
+Codex.dmg
+*.asar
+
+# Log files
+*.log
+
+# Caches
+.npm/
+.pnpm-store/
