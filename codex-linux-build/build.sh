@@ -98,7 +98,7 @@ require_commands() {
     local missing=()
     local cmd
 
-    for cmd in node npm pnpm python3 rg 7z file tar sha256sum; do
+    for cmd in node npm pnpm python3 7z file tar sha256sum; do
         if ! command -v "$cmd" >/dev/null 2>&1; then
             missing+=("$cmd")
         fi
