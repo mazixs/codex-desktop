@@ -48,7 +48,7 @@ append_commit_notes() {
             subject="${entry%%$'\x1f'*}"
             body="${entry#*$'\x1f'}"
 
-            printf -- '- `%s` %s\n' "$short_hash" "$subject"
+            printf -- "- \`%s\` %s\n" "$short_hash" "$subject"
             if [ -n "$body" ]; then
                 printf '  Comment:\n'
                 printf '%s\n' "$body" | sed 's/^/    /'
@@ -140,15 +140,15 @@ main() {
         printf 'Release date: %s\n\n' "$release_date"
         printf '## Scope\n\n'
         if [ -n "$previous_tag" ]; then
-            printf -- '- Previous tag: `%s`\n' "$previous_tag"
-            printf -- '- Commit range: `%s..%s`\n' "$previous_tag" "$REF"
+            printf -- "- Previous tag: \`%s\`\n" "$previous_tag"
+            printf -- "- Commit range: \`%s..%s\`\n" "$previous_tag" "$REF"
         else
             printf -- '- Previous tag: none\n'
-            printf -- '- Commit range: full history through `%s`\n' "$REF"
+            printf -- "- Commit range: full history through \`%s\`\n" "$REF"
         fi
         printf -- '- Included commits: %s\n' "$commit_count"
         if [ -n "$upstream_version" ]; then
-            printf -- '- Upstream Codex version inside artifact: `%s`\n' "$upstream_version"
+            printf -- "- Upstream Codex version inside artifact: \`%s\`\n" "$upstream_version"
         fi
         if [ -n "$compare_url" ]; then
             printf -- '- Compare: [%s](%s)\n' "$compare_url" "$compare_url"
