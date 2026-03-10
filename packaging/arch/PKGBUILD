@@ -1,0 +1,68 @@
+# Maintainer: mazix
+
+: "${CODEX_PACKAGE_VERSION:?CODEX_PACKAGE_VERSION must be set}"
+: "${CODEX_RELEASE_LABEL:?CODEX_RELEASE_LABEL must be set}"
+: "${CODEX_SOURCE_ARCHIVE:?CODEX_SOURCE_ARCHIVE must be set}"
+: "${CODEX_SOURCE_SHA256:?CODEX_SOURCE_SHA256 must be set}"
+
+pkgname=codex-desktop-bin
+pkgver="${CODEX_PACKAGE_VERSION}"
+pkgrel="${CODEX_PKGREL:-1}"
+pkgdesc="Linux adaptation of OpenAI Codex Desktop bundled with Electron ${CODEX_ELECTRON_VERSION:-40.0.0}"
+arch=('x86_64')
+url='https://github.com/mazixs/codex-desktop'
+license=('Apache')
+depends=(
+  'brotli'
+  'c-ares'
+  'flac'
+  'fontconfig'
+  'freetype2'
+  'gcc-libs'
+  'glibc'
+  'gtk3'
+  'harfbuzz'
+  'libdrm'
+  'libevent'
+  'libffi'
+  'libjpeg-turbo'
+  'libpng'
+  'libpulse'
+  'libxml2'
+  'libxslt'
+  'minizip'
+  'nss'
+  'opus'
+  'zlib'
+)
+optdepends=(
+  'pipewire: WebRTC desktop sharing under Wayland'
+  'xdg-utils: open external links with the desktop default handler'
+)
+provides=('codex-desktop')
+conflicts=('codex-desktop')
+options=('!strip' '!debug')
+source=("${CODEX_SOURCE_ARCHIVE}" 'codex-desktop.desktop' 'codex-desktop-wrapper.sh')
+sha256sums=("${CODEX_SOURCE_SHA256}" 'SKIP' 'SKIP')
+
+package() {
+  local release_root="${CODEX_SOURCE_ARCHIVE%.tar.gz}"
+
+  install -dm755 "${pkgdir}/opt/codex-desktop"
+  cp -a "${srcdir}/${release_root}/." "${pkgdir}/opt/codex-desktop/"
+
+  install -Dm755 "${srcdir}/codex-desktop-wrapper.sh" "${pkgdir}/usr/bin/codex-desktop"
+  install -Dm644 "${srcdir}/codex-desktop.desktop" "${pkgdir}/usr/share/applications/codex-desktop.desktop"
+  install -Dm644 \
+    "${pkgdir}/opt/codex-desktop/codex-icon.png" \
+    "${pkgdir}/usr/share/icons/hicolor/512x512/apps/codex-desktop.png"
+  install -Dm644 \
+    "${srcdir}/${release_root}/LICENSE" \
+    "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+
+  if [[ -f "${srcdir}/${release_root}/README.md" ]]; then
+    install -Dm644 \
+      "${srcdir}/${release_root}/README.md" \
+      "${pkgdir}/usr/share/doc/${pkgname}/README.md"
+  fi
+}

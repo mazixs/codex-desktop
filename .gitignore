@@ -1,6 +1,7 @@
 # Build directories
 codex_extracted/
 dist/
+artifacts/
 native-rebuild/
 
 # Node modules

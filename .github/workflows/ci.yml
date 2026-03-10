@@ -1,0 +1,145 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: codex-linux-build/pnpm-lock.yaml
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential file p7zip-full python3 shellcheck
+
+      - name: Install JavaScript dependencies
+        working-directory: codex-linux-build
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate repository scripts
+        working-directory: codex-linux-build
+        run: pnpm run verify
+
+      - name: Run ShellCheck
+        run: |
+          shellcheck codex-linux-build/build.sh
+          shellcheck codex-linux-build/start.sh
+          shellcheck scripts/generate-release-notes.sh
+          shellcheck scripts/build-arch-package.sh
+          shellcheck packaging/arch/codex-desktop-wrapper.sh
+
+      - name: Generate sample release notes
+        run: ./scripts/generate-release-notes.sh --ref HEAD --output /tmp/release-notes.md
+
+  smoke-build:
+    if: github.event_name != 'pull_request'
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: codex-linux-build/pnpm-lock.yaml
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential file p7zip-full python3
+
+      - name: Install JavaScript dependencies
+        working-directory: codex-linux-build
+        run: pnpm install --frozen-lockfile
+
+      - name: Build portable artifact
+        working-directory: codex-linux-build
+        run: pnpm run package:portable
+
+      - name: Upload smoke-build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-build-${{ github.sha }}
+          path: |
+            codex-linux-build/artifacts/*.tar.gz
+            codex-linux-build/artifacts/*.sha256
+            codex-linux-build/artifacts/build-metadata.env
+
+  arch-package-smoke:
+    if: github.event_name != 'pull_request'
+    needs: smoke-build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download smoke-build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: smoke-build-${{ github.sha }}
+          path: /tmp/codex-portable
+
+      - name: Build Arch package in Arch container
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/codex-arch-output
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE":/workspace \
+            -v /tmp/codex-portable:/portable \
+            -v /tmp/codex-arch-output:/output \
+            archlinux:latest \
+            bash -lc '
+              set -euo pipefail
+              pacman -Syu --noconfirm base-devel
+              useradd -m builder
+              chown -R builder:builder /workspace /portable /output
+              archive="$(find /portable -maxdepth 1 -name "*.tar.gz" | head -n 1)"
+              runuser -u builder -- bash -lc "cd /workspace && ./scripts/build-arch-package.sh --source \"$archive\" --metadata /portable/build-metadata.env --output-dir /output"
+            '
+
+      - name: Upload Arch smoke artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: arch-smoke-build-${{ github.sha }}
+          path: |
+            /tmp/codex-arch-output/*.pkg.tar.zst
+            /tmp/codex-arch-output/*.pkg.tar.zst.sha256

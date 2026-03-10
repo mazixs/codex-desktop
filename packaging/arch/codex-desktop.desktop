@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Codex
+Comment=OpenAI Codex Desktop for Linux
+Exec=codex-desktop
+Icon=codex-desktop
+Type=Application
+Categories=Development;IDE;
+StartupWMClass=codex
+Terminal=false
+Keywords=OpenAI;Codex;AI;Development;

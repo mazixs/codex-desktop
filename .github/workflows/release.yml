@@ -1,0 +1,148 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-portable:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: codex-linux-build/pnpm-lock.yaml
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential file p7zip-full python3 shellcheck
+
+      - name: Install JavaScript dependencies
+        working-directory: codex-linux-build
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint shell entrypoints
+        run: |
+          shellcheck codex-linux-build/build.sh
+          shellcheck codex-linux-build/start.sh
+          shellcheck scripts/generate-release-notes.sh
+          shellcheck scripts/build-arch-package.sh
+          shellcheck packaging/arch/codex-desktop-wrapper.sh
+
+      - name: Build portable release artifact
+        working-directory: codex-linux-build
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: pnpm run package:portable
+
+      - name: Generate release notes
+        run: ./scripts/generate-release-notes.sh --ref "${GITHUB_REF_NAME}" --output codex-linux-build/artifacts/release-notes.md
+
+      - name: Upload portable release bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: portable-release-${{ github.ref_name }}
+          path: |
+            codex-linux-build/artifacts/*.tar.gz
+            codex-linux-build/artifacts/*.sha256
+            codex-linux-build/artifacts/build-metadata.env
+            codex-linux-build/artifacts/release-notes.md
+
+  build-arch-package:
+    needs: build-portable
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download portable release bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: portable-release-${{ github.ref_name }}
+          path: /tmp/codex-portable
+
+      - name: Build Arch package in Arch container
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/codex-arch-output
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE":/workspace \
+            -v /tmp/codex-portable:/portable \
+            -v /tmp/codex-arch-output:/output \
+            archlinux:latest \
+            bash -lc '
+              set -euo pipefail
+              pacman -Syu --noconfirm base-devel
+              useradd -m builder
+              chown -R builder:builder /workspace /portable /output
+              archive="$(find /portable -maxdepth 1 -name "*.tar.gz" | head -n 1)"
+              runuser -u builder -- bash -lc "cd /workspace && ./scripts/build-arch-package.sh --source \"$archive\" --metadata /portable/build-metadata.env --output-dir /output"
+            '
+
+      - name: Upload Arch package bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: arch-release-${{ github.ref_name }}
+          path: |
+            /tmp/codex-arch-output/*.pkg.tar.zst
+            /tmp/codex-arch-output/*.pkg.tar.zst.sha256
+
+  publish-release:
+    needs:
+      - build-portable
+      - build-arch-package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Download portable release bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: portable-release-${{ github.ref_name }}
+          path: /tmp/release-portable
+
+      - name: Download Arch package bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: arch-release-${{ github.ref_name }}
+          path: /tmp/release-arch
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" \
+              /tmp/release-portable/* \
+              /tmp/release-arch/* \
+              --clobber
+            gh release edit "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" --notes-file /tmp/release-portable/release-notes.md
+          else
+            gh release create "${GITHUB_REF_NAME}" \
+              /tmp/release-portable/* \
+              /tmp/release-arch/* \
+              --title "${GITHUB_REF_NAME}" \
+              --notes-file /tmp/release-portable/release-notes.md
+          fi

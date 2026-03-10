@@ -1,115 +1,112 @@
 <div align="center">
   <img src="assets/codex-logo.png" alt="OpenAI Codex Logo" width="128" height="128" />
   <h1>OpenAI Codex Desktop for Linux</h1>
-  <p><b>A fully automated build pipeline to bring the official macOS Codex app natively to Linux.</b></p>
-
-  [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-  [![Platform: Arch Linux (Tested)](https://img.shields.io/badge/Platform-Arch_Linux%20(CachyOS)-1793d1?logo=arch-linux)](https://cachyos.org/)
-  [![Framework: Electron](https://img.shields.io/badge/Framework-Electron-47848F?logo=electron)](https://www.electronjs.org/)
-
+  <p><b>Linux build and release tooling for the official macOS Codex Desktop app.</b></p>
 </div>
 
----
+## Overview
 
-## 🌟 What is this?
+This repository adapts the official macOS Codex Desktop distribution to Linux by:
 
-OpenAI released a dedicated Codex Desktop application exclusive to macOS. This project provides a fully automated pipeline that downloads the official macOS `.dmg` image, unpacks it, strips out Apple-specific binaries, recompiles everything for Linux `x64`, and patches graphical bugs to deliver a native, fully-functional experience on Linux.
+- downloading the upstream `Codex.dmg`
+- extracting `app.asar`
+- rebuilding macOS-native modules as Linux ELF binaries
+- patching Linux-incompatible Electron code paths
+- packaging a portable Linux artifact
 
-> **Tested and verified on CachyOS (Arch-based) under Wayland & X11.**
+The project remains an unofficial port. The technical approach works, but it is inherently coupled to upstream bundle internals and should be treated as a maintained compatibility layer, not a stable public API.
 
----
+## Current Status
 
-## ✨ Features
+What is validated:
 
-- **End-to-End Automation:** A single `./build.sh` script does everything from downloading the `.dmg` to creating your desktop launcher.
-- **Native Wayland/X11 Support:** Fully integrates with Ozone-platform on Linux.
-- **Fixed Graphics:** Fully resolves macOS-specific `vibrancy` UI bugs that cause invisible or fully transparent windows on Linux compositors.
-- **Background LSP integration:** Seamlessly bridges the local `app-server` using the open-source `@openai/codex` CLI (replacing the missing Linux binary).
+- the repository now builds a portable Linux artifact from a tagged pipeline
+- release notes are generated automatically from commit history between tags
+- CI runs syntax, shell validation, and a smoke build on GitHub Actions
 
-## 🚀 Getting Started
+What is still fragile by design:
 
-### 1. Prerequisites
-Ensure you have the following packages installed on your Linux machine:
-* `node` (Node.js LTS), `npm`, `npx`
-* `python3` (required for `node-gyp` builds)
-* `7z` (p7zip - for extracting the Apple DMG)
-* `wget`
-* Base build tools (`base-devel` on Arch, `build-essential` on Debian/Ubuntu)
+- patching happens against a minified upstream `main.js`
+- upstream changes can break string-based patches without warning unless the guard checks catch them
+- the runtime is Linux `x64` only at the moment
 
-### 2. Build
+The detailed technical audit lives in [docs/REPOSITORY_AUDIT.md](docs/REPOSITORY_AUDIT.md).
 
-Clone this repository and run the build script. It will automatically download the official DMG image right from OpenAI's servers and compile the native modules.
+## Local Build
+
+### Prerequisites
+
+- `node`, `npm`, `pnpm`
+- `python3`
+- `7z`
+- `file`
+- base toolchain (`build-essential` on Debian/Ubuntu, `base-devel` on Arch)
+
+### Commands
 
 ```bash
 git clone https://github.com/mazixs/codex-desktop.git
 cd codex-desktop/codex-linux-build
-./build.sh
-```
-
-### 3. Launch
-
-To start the app:
-
-```bash
+pnpm install --frozen-lockfile
+pnpm run build
 ./start.sh
 ```
 
-A handy `.desktop` application shortcut is automatically placed in your `~/.local/share/applications/` directory so you can launch Codex right from your app launcher!
-
-## 🛑 Uninstallation
-
-If you wish to remove Codex from your system entirely, run the following commands to delete the desktop entry, configuration, and build folders:
+To create the same portable artifact used in releases:
 
 ```bash
-# Remove Desktop Launcher
-rm ~/.local/share/applications/codex-desktop.desktop
-
-# Remove Codex application data/configuration
-rm -rf ~/.config/codex
-
-# (Optional) Delete the repository folder
-cd ..
-rm -rf codex-desktop
+pnpm run package:portable
 ```
 
----
+Artifacts are written to `codex-linux-build/artifacts/`.
 
-## 🛠️ How It Works (Briefly)
+To produce the Arch Linux package locally after the portable archive is ready:
 
-The macOS binary isn't natively compatible with Linux. Here's a quick rundown of what the build pipeline achieves:
-
-* **Rebuilding Native Modules:** Automatically replaces the bundled macOS ARM64 `node-pty` and `better-sqlite3` packages with freshly compiled Linux versions using `@electron/rebuild`.
-* **Fixing Graphics:** macOS features native transparent window layers ("vibrancy"). On Linux compositors, this makes windows completely invisible. The script patches the core Electron `main.js` to enforce solid colors (Black/White based on your theme) and injects GPU compositing fixes.
-* **Architecture Detoxing:** Removes macOS-exclusive features that crash Electron on Linux (like the `sparkle` auto-updater and Touch Bar APIs).
-
-> 🧠 **Want to dive deeper?** Check out the full technical documentation in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and the step-by-step reverse engineering log in [docs/TECHNICAL_DETAILS.md](docs/TECHNICAL_DETAILS.md).
-
----
-
-## 🚑 Troubleshooting
-
-**1. The App Window is Completely Black or Transparent**  
-If you still experience issues under Wayland or NVIDIA proprietary drivers, launch the app directly with terminal overriding flags:
 ```bash
-# Force X11 fallback (if Wayland is failing)
-./start.sh --ozone-platform=x11
-
-# Disable GPU acceleration completely
-./start.sh --disable-gpu
+./scripts/build-arch-package.sh \
+  --source codex-linux-build/artifacts/*.tar.gz \
+  --metadata codex-linux-build/artifacts/build-metadata.env \
+  --output-dir codex-linux-build/artifacts
 ```
 
-**2. Port `5175` is already in use (`EADDRINUSE`)**  
-The underlying Node.js local Webview server might have failed to terminate. The `start.sh` script automatically attempts to kill hanging ports using `fuser`, but if the issue persists, kill it manually:
+## Release Flow
+
+The repository now uses a tag-driven release process:
+
 ```bash
-fuser -k 5175/tcp
+git tag v1.0.0
+git push origin v1.0.0
 ```
 
-**3. Node-gyp or SQLite Compilation Fails**  
-Make sure you have `python3` and `make` / `gcc` installed on your system.
-* Arch Linux / CachyOS: `sudo pacman -S base-devel python`
-* Ubuntu / Debian: `sudo apt install build-essential python3`
+After the tag is pushed:
 
----
+- GitHub Actions builds the portable Linux package
+- a second job turns that artifact into `codex-desktop-bin-<version>-x86_64.pkg.tar.zst` for Arch Linux
+- `scripts/generate-release-notes.sh` collects commit subjects and bodies since the previous tag
+- the workflow creates or updates the GitHub Release and uploads both packages plus checksums
 
-## 🤝 Contributions
-Have improvements or fixes? Pull requests are always welcome!
+The CI/CD details are documented in [docs/CI_CD.md](docs/CI_CD.md). Each tagged release now publishes both a portable `tar.gz` and an Arch Linux `pkg.tar.zst`.
+
+## Repository Layout
+
+- `codex-linux-build/` build toolchain, launcher, packaging logic
+- `scripts/` repository-level automation such as release note generation
+- `docs/` architecture, reverse engineering notes, audit, and CI/CD documentation
+- `codex_extracted/` optional local extraction cache, ignored by git
+
+## Documentation
+
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- [docs/TECHNICAL_DETAILS.md](docs/TECHNICAL_DETAILS.md)
+- [docs/REPOSITORY_AUDIT.md](docs/REPOSITORY_AUDIT.md)
+- [docs/CI_CD.md](docs/CI_CD.md)
+
+## Limitations
+
+- The upstream application is distributed for macOS, so Linux compatibility depends on reverse-engineered patch points.
+- This repository does not publish an official upstream build; it automates a local adaptation.
+- If upstream Electron internals, native module versions, or bundle structure change, the Linux build may need patch updates.
+
+## License
+
+Repository code is provided under [Apache-2.0](LICENSE). Upstream Codex application binaries remain subject to OpenAI's terms.
