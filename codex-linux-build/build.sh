@@ -340,9 +340,11 @@ patch_main_js() {
     cp "$main_js" "$main_js.bak"
 
     replace_literal "$main_js" 'require("./native/sparkle.node")' '(() => { throw new Error("sparkle not available on linux") })()'
+    # shellcheck disable=SC2016
     replace_literal "$main_js" 'require(`./native/sparkle.node`)' '(() => { throw new Error("sparkle not available on linux") })()'
     replace_literal "$main_js" 'Library/Application Support/Codex' '.config/codex'
     replace_literal "$main_js" 'require("electron-squirrel-startup")' 'false'
+    # shellcheck disable=SC2016
     replace_literal "$main_js" 'require(`electron-squirrel-startup`)' 'false'
     replace_literal "$main_js" 'transparent:!0' 'transparent:!1' 1
     replace_literal "$main_js" 'transparent:true' 'transparent:false'
@@ -369,7 +371,7 @@ extract_icon() {
         icns2png -x -s 256 "$icns_file" -o "$SCRIPT_DIR/" >/dev/null 2>&1 || true
         mv "$SCRIPT_DIR/"*256x256*.png "$SCRIPT_DIR/codex-icon.png" 2>/dev/null || true
     elif command -v convert >/dev/null 2>&1; then
-        convert "$icns_file[0]" -resize 256x256 "$SCRIPT_DIR/codex-icon.png" >/dev/null 2>&1 || true
+        convert "${icns_file}[0]" -resize 256x256 "$SCRIPT_DIR/codex-icon.png" >/dev/null 2>&1 || true
     fi
 
     if [ ! -f "$SCRIPT_DIR/codex-icon.png" ]; then
