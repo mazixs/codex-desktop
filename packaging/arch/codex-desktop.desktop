@@ -1,10 +1,20 @@
 [Desktop Entry]
 Name=Codex
 Comment=OpenAI Codex Desktop for Linux
+Comment[ru]=Нативный клиент OpenAI Codex Desktop для Linux
+Comment[es]=Cliente nativo de OpenAI Codex Desktop para Linux
+Comment[de]=Nativer OpenAI Codex Desktop Client für Linux
+Comment[fr]=Client natif OpenAI Codex Desktop pour Linux
+Comment[zh_CN]=适用于 Linux 的 OpenAI Codex Desktop 原生客户端
+Comment[zh_TW]=適用於 Linux 的 OpenAI Codex Desktop 原生客戶端
+Comment[hi]=Linux के लिए OpenAI Codex Desktop का नेटिव क्लाइंट
+Comment[ja]=Linux向けOpenAI Codex Desktop のネイティブクライアント
+Comment[ko]=Linux용 OpenAI Codex Desktop 네이티브 클라이언트
+Comment[ar]=العميل الأصلي لـ OpenAI Codex Desktop على لينكس
 Exec=codex-desktop
 Icon=codex-desktop
 Type=Application
 Categories=Development;IDE;
-StartupWMClass=codex
+StartupWMClass=codex-desktop
 Terminal=false
 Keywords=OpenAI;Codex;AI;Development;

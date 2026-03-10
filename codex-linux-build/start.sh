@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DIST_DIR="$SCRIPT_DIR/dist"
 WEBVIEW_PORT="${CODEX_WEBVIEW_PORT:-5175}"
+APP_DESKTOP_ID="codex-desktop"
 
 log() {
     printf '[codex-linux] %s\n' "$1"
@@ -103,10 +104,13 @@ if [ "${XDG_SESSION_TYPE:-}" = "wayland" ]; then
     OZONE_FLAGS=(--enable-features=UseOzonePlatform --ozone-platform=wayland)
 fi
 
+export CHROME_DESKTOP="${APP_DESKTOP_ID}.desktop"
+
 exec "$ELECTRON_BIN_RESOLVED" \
     "$DIST_DIR" \
     --no-sandbox \
     --disable-gpu-compositing \
     --disable-background-timer-throttling \
+    --class="$APP_DESKTOP_ID" \
     "${OZONE_FLAGS[@]}" \
     "$@"

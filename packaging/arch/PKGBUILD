@@ -47,15 +47,23 @@ sha256sums=("${CODEX_SOURCE_SHA256}" 'SKIP' 'SKIP')
 
 package() {
   local release_root="${CODEX_SOURCE_ARCHIVE%.tar.gz}"
+  local icon_size=""
 
   install -dm755 "${pkgdir}/opt/codex-desktop"
   cp -a "${srcdir}/${release_root}/." "${pkgdir}/opt/codex-desktop/"
 
   install -Dm755 "${srcdir}/codex-desktop-wrapper.sh" "${pkgdir}/usr/bin/codex-desktop"
   install -Dm644 "${srcdir}/codex-desktop.desktop" "${pkgdir}/usr/share/applications/codex-desktop.desktop"
+  for icon_size in 16 24 32 48 64 128 256 512; do
+    if [[ -f "${pkgdir}/opt/codex-desktop/icons/hicolor/${icon_size}x${icon_size}/apps/codex-desktop.png" ]]; then
+      install -Dm644 \
+        "${pkgdir}/opt/codex-desktop/icons/hicolor/${icon_size}x${icon_size}/apps/codex-desktop.png" \
+        "${pkgdir}/usr/share/icons/hicolor/${icon_size}x${icon_size}/apps/codex-desktop.png"
+    fi
+  done
   install -Dm644 \
     "${pkgdir}/opt/codex-desktop/codex-icon.png" \
-    "${pkgdir}/usr/share/icons/hicolor/512x512/apps/codex-desktop.png"
+    "${pkgdir}/usr/share/pixmaps/codex-desktop.png"
   install -Dm644 \
     "${srcdir}/${release_root}/LICENSE" \
     "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"

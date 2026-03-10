@@ -38,7 +38,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential file p7zip-full python3 shellcheck
+          sudo apt-get install -y build-essential file imagemagick p7zip-full python3 shellcheck
 
       - name: Install JavaScript dependencies
         working-directory: codex-linux-build
@@ -58,6 +58,17 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: pnpm run package:portable
 
+      - name: Verify generated icon assets
+        run: |
+          for size in 16 24 32 48 64 128 256 512; do
+            test -f "codex-linux-build/artifacts/icons/hicolor/${size}x${size}/apps/codex-desktop.png"
+          done
+          archive="$(find codex-linux-build/artifacts -maxdepth 1 -name 'codex-desktop-*-linux-x64.tar.gz' | head -n 1)"
+          test -n "$archive"
+          for size in 16 24 32 48 64 128 256 512; do
+            tar -tzf "$archive" | grep -q "icons/hicolor/${size}x${size}/apps/codex-desktop.png"
+          done
+
       - name: Generate release notes
         run: ./scripts/generate-release-notes.sh --ref "${GITHUB_REF_NAME}" --output codex-linux-build/artifacts/release-notes.md
 
@@ -65,6 +76,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: portable-release-${{ github.ref_name }}
+          retention-days: 1
           path: |
             codex-linux-build/artifacts/*.tar.gz
             codex-linux-build/artifacts/*.sha256
@@ -108,6 +120,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: arch-release-${{ github.ref_name }}
+          retention-days: 1
           path: |
             /tmp/codex-arch-output/*.pkg.tar.zst
             /tmp/codex-arch-output/*.pkg.tar.zst.sha256

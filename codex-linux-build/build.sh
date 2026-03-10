@@ -15,6 +15,9 @@ DMG_URL="${CODEX_DMG_URL:-https://persistent.oaistatic.com/codex-app-prod/Codex.
 ELECTRON_VERSION="${ELECTRON_VERSION:-40.0.0}"
 BUILD_ARCH="${BUILD_ARCH:-x64}"
 BUILD_PLATFORM="linux"
+APP_DESKTOP_ID="codex-desktop"
+APP_DISPLAY_NAME="Codex"
+APP_STARTUP_WM_CLASS="$APP_DESKTOP_ID"
 PACKAGE_RELEASE=0
 INSTALL_DESKTOP_ENTRY=0
 CLEAN_OUTPUTS=0
@@ -121,6 +124,20 @@ require_commands() {
     fi
 }
 
+resolve_imagemagick() {
+    if command -v magick >/dev/null 2>&1; then
+        printf 'magick\n'
+        return 0
+    fi
+
+    if command -v convert >/dev/null 2>&1; then
+        printf 'convert\n'
+        return 0
+    fi
+
+    return 1
+}
+
 clean_outputs() {
     rm -rf "$BUILD_DIR" "$ARTIFACTS_DIR" "$NATIVE_BUILD_DIR"
 }
@@ -216,6 +233,28 @@ prepare_working_copy() {
     fi
 
     cp "$WEBVIEW_SERVER_TEMPLATE" "$BUILD_DIR/webview-server.js"
+}
+
+apply_linux_desktop_identity() {
+    local build_package_json="$BUILD_DIR/package.json"
+
+    if [ ! -f "$build_package_json" ]; then
+        err "package.json not found at $build_package_json"
+        exit 1
+    fi
+
+    log "Applying Linux desktop identity metadata..."
+    node - "$build_package_json" "$APP_DESKTOP_ID" "$APP_DISPLAY_NAME" <<'EOF'
+const fs = require("node:fs");
+
+const [packageJsonPath, desktopId, displayName] = process.argv.slice(2);
+const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+
+packageJson.desktopName = `${desktopId}.desktop`;
+packageJson.productName = displayName;
+
+fs.writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
+EOF
 }
 
 rebuild_native_modules() {
@@ -364,6 +403,7 @@ patch_main_js() {
 
 extract_icon() {
     local icns_file="$EXTRACTED_DIR/Codex Installer/Codex.app/Contents/Resources/electron.icns"
+    local imagemagick_bin=""
 
     if [ -f "$SCRIPT_DIR/codex-icon.png" ]; then
         return 0
@@ -377,13 +417,45 @@ extract_icon() {
     if command -v icns2png >/dev/null 2>&1; then
         icns2png -x -s 256 "$icns_file" -o "$SCRIPT_DIR/" >/dev/null 2>&1 || true
         mv "$SCRIPT_DIR/"*256x256*.png "$SCRIPT_DIR/codex-icon.png" 2>/dev/null || true
-    elif command -v convert >/dev/null 2>&1; then
-        convert "${icns_file}[0]" -resize 256x256 "$SCRIPT_DIR/codex-icon.png" >/dev/null 2>&1 || true
+    else
+        imagemagick_bin="$(resolve_imagemagick || true)"
+        if [ -n "$imagemagick_bin" ]; then
+            "$imagemagick_bin" "${icns_file}[0]" -resize 512x512 "$SCRIPT_DIR/codex-icon.png" >/dev/null 2>&1 || true
+        fi
     fi
 
     if [ ! -f "$SCRIPT_DIR/codex-icon.png" ]; then
         warn "Icon conversion unavailable; keeping fallback electron_512x512x32.png"
     fi
+}
+
+generate_icon_set() {
+    local source_icon="$SCRIPT_DIR/codex-icon.png"
+    local icons_root="$ARTIFACTS_DIR/icons/hicolor"
+    local imagemagick_bin=""
+    local size=""
+
+    if [ ! -f "$source_icon" ]; then
+        source_icon="$SCRIPT_DIR/electron_512x512x32.png"
+    fi
+
+    if [ ! -f "$source_icon" ]; then
+        warn "No source icon available; skipping icon set generation"
+        return 0
+    fi
+
+    imagemagick_bin="$(resolve_imagemagick || true)"
+    if [ -z "$imagemagick_bin" ]; then
+        warn "ImageMagick not found; skipping icon set generation"
+        return 0
+    fi
+
+    rm -rf "$icons_root"
+    for size in 16 24 32 48 64 128 256 512; do
+        local size_dir="$icons_root/${size}x${size}/apps"
+        mkdir -p "$size_dir"
+        "$imagemagick_bin" "$source_icon" -background none -resize "${size}x${size}" "$size_dir/${APP_DESKTOP_ID}.png"
+    done
 }
 
 write_build_metadata() {
@@ -444,6 +516,10 @@ package_release() {
         cp "$SCRIPT_DIR/electron_512x512x32.png" "$package_dir/codex-icon.png"
     fi
 
+    if [ -d "$ARTIFACTS_DIR/icons" ]; then
+        cp -a "$ARTIFACTS_DIR/icons" "$package_dir/"
+    fi
+
     write_build_metadata "$package_dir/build-metadata.env"
 
     tar -C "$ARTIFACTS_DIR" -czf "$archive_path" "$package_name"
@@ -457,26 +533,50 @@ package_release() {
 
 install_desktop_entry() {
     local applications_dir="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+    local icons_base_dir="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor"
     local desktop_file="$applications_dir/codex-desktop.desktop"
-    local icon_path="$SCRIPT_DIR/codex-icon.png"
+    local fallback_icon_path="$SCRIPT_DIR/codex-icon.png"
+    local size=""
 
     mkdir -p "$applications_dir"
 
-    if [ ! -f "$icon_path" ]; then
-        icon_path="$SCRIPT_DIR/electron_512x512x32.png"
+    if [ ! -f "$fallback_icon_path" ]; then
+        fallback_icon_path="$SCRIPT_DIR/electron_512x512x32.png"
+    fi
+
+    if [ -d "$ARTIFACTS_DIR/icons/hicolor" ]; then
+        for size in 16 24 32 48 64 128 256 512; do
+            local source_icon="$ARTIFACTS_DIR/icons/hicolor/${size}x${size}/apps/${APP_DESKTOP_ID}.png"
+            local target_icon_dir="$icons_base_dir/${size}x${size}/apps"
+            if [ -f "$source_icon" ]; then
+                mkdir -p "$target_icon_dir"
+                cp "$source_icon" "$target_icon_dir/${APP_DESKTOP_ID}.png"
+            fi
+        done
+    elif [ -f "$fallback_icon_path" ]; then
+        mkdir -p "$icons_base_dir/512x512/apps"
+        cp "$fallback_icon_path" "$icons_base_dir/512x512/apps/${APP_DESKTOP_ID}.png"
     fi
 
     cat > "$desktop_file" <<EOF
 [Desktop Entry]
-Name=Codex
+Name=$APP_DISPLAY_NAME
 Comment=OpenAI Codex Desktop (Linux Port)
 Exec=$SCRIPT_DIR/start.sh
-Icon=$icon_path
+Icon=$APP_DESKTOP_ID
 Type=Application
 Categories=Development;IDE;
 Terminal=false
-StartupWMClass=codex
+StartupWMClass=$APP_STARTUP_WM_CLASS
 EOF
+
+    if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+        gtk-update-icon-cache -q -t "$icons_base_dir" >/dev/null 2>&1 || true
+    fi
+
+    if command -v update-desktop-database >/dev/null 2>&1; then
+        update-desktop-database "${XDG_DATA_HOME:-$HOME/.local/share}/applications" >/dev/null 2>&1 || true
+    fi
 
     log "Desktop entry installed at $desktop_file"
 }
@@ -494,11 +594,13 @@ main() {
     verify_dmg
     extract_app
     prepare_working_copy
+    apply_linux_desktop_identity
     rebuild_native_modules
     patch_main_js
     extract_icon
 
     mkdir -p "$ARTIFACTS_DIR"
+    generate_icon_set
     write_build_metadata "$ARTIFACTS_DIR/build-metadata.env"
 
     chmod +x "$SCRIPT_DIR/start.sh"
