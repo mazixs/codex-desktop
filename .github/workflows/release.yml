@@ -8,6 +8,9 @@ on:
 permissions:
   contents: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
@@ -148,9 +151,6 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
       - name: Download portable release bundle
         uses: actions/download-artifact@v4
         with:
@@ -168,16 +168,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+          repo="${{ github.repository }}"
+          if gh release view "${GITHUB_REF_NAME}" --repo "$repo" >/dev/null 2>&1; then
             gh release upload "${GITHUB_REF_NAME}" \
               /tmp/release-portable/* \
               /tmp/release-arch/* \
+              --repo "$repo" \
               --clobber
-            gh release edit "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" --notes-file /tmp/release-portable/release-notes.md
+            gh release edit "${GITHUB_REF_NAME}" --repo "$repo" --title "${GITHUB_REF_NAME}" --notes-file /tmp/release-portable/release-notes.md
           else
             gh release create "${GITHUB_REF_NAME}" \
               /tmp/release-portable/* \
               /tmp/release-arch/* \
+              --repo "$repo" \
               --title "${GITHUB_REF_NAME}" \
               --notes-file /tmp/release-portable/release-notes.md
           fi
