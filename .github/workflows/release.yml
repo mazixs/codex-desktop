@@ -8,9 +8,6 @@ on:
 permissions:
   contents: write
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
@@ -22,7 +19,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -32,7 +29,7 @@ jobs:
           version: 10.30.3
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
@@ -91,7 +88,7 @@ jobs:
         run: ./scripts/generate-release-notes.sh --ref "${GITHUB_REF_NAME}" --output codex-linux-build/artifacts/release-notes.md
 
       - name: Upload portable release bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: portable-release-${{ github.ref_name }}
           retention-days: 1
@@ -108,10 +105,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Download portable release bundle
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: portable-release-${{ github.ref_name }}
           path: /tmp/codex-portable
@@ -135,7 +132,7 @@ jobs:
             '
 
       - name: Upload Arch package bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: arch-release-${{ github.ref_name }}
           retention-days: 1
@@ -152,13 +149,13 @@ jobs:
 
     steps:
       - name: Download portable release bundle
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: portable-release-${{ github.ref_name }}
           path: /tmp/release-portable
 
       - name: Download Arch package bundle
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: arch-release-${{ github.ref_name }}
           path: /tmp/release-arch
