@@ -91,7 +91,7 @@ require_commands() {
 
 derive_package_version() {
     local release_label="$1"
-    local pkgver="${PACKAGE_VERSION:-${release_label#v}}"
+    local pkgver="${PACKAGE_VERSION:-${UPSTREAM_VERSION:-${release_label#v}}}"
 
     pkgver="${pkgver//-/_}"
     pkgver="${pkgver// /_}"
@@ -109,6 +109,9 @@ main() {
     local source_sha=""
     local release_label=""
     local package_version=""
+    local release_asset_version=""
+    local canonical_package_path=""
+    local release_asset_name=""
 
     parse_args "$@"
     require_commands
@@ -165,12 +168,19 @@ main() {
         makepkg -f --nodeps --cleanbuild
     )
 
-    cp "$WORK_DIR"/*.pkg.tar.zst "$OUTPUT_DIR/"
+    canonical_package_path="$(find "$WORK_DIR" -maxdepth 1 -name '*.pkg.tar.zst' | head -n 1)"
+    if [ -z "$canonical_package_path" ] || [ ! -f "$canonical_package_path" ]; then
+        printf 'Built Arch package not found in %s\n' "$WORK_DIR" >&2
+        exit 1
+    fi
+
+    release_asset_version="$package_version"
+    release_asset_name="codex-desktop-native-${release_asset_version}-archlinux-x86_64.pkg.tar.zst"
+
+    cp "$canonical_package_path" "$OUTPUT_DIR/$release_asset_name"
     (
         cd "$OUTPUT_DIR"
-        for package_file in *.pkg.tar.zst; do
-            sha256sum "$package_file" > "$package_file.sha256"
-        done
+        sha256sum "$release_asset_name" > "$release_asset_name.sha256"
     )
 
     printf 'Arch package artifacts written to %s\n' "$OUTPUT_DIR"

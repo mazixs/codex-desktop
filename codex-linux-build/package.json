@@ -8,7 +8,7 @@
     "build": "./build.sh",
     "build:clean": "./build.sh --clean",
     "package:portable": "./build.sh --clean --package",
-    "verify": "bash -n build.sh && bash -n start.sh && bash -n ../scripts/generate-release-notes.sh && bash -n ../scripts/build-arch-package.sh && bash -n ../packaging/arch/codex-desktop-wrapper.sh && ./build.sh --help >/dev/null && ../scripts/generate-release-notes.sh --help >/dev/null && ../scripts/build-arch-package.sh --help >/dev/null"
+    "verify": "bash -n build.sh && bash -n start.sh && bash -n ../scripts/generate-release-notes.sh && bash -n ../scripts/build-arch-package.sh && bash -n ../packaging/arch/codex-desktop-wrapper.sh && bash -n ../packaging/skills-overrides/.curated/playwright/scripts/playwright_cli.sh && ./build.sh --help >/dev/null && ../scripts/generate-release-notes.sh --help >/dev/null && ../scripts/build-arch-package.sh --help >/dev/null"
   },
   "keywords": [
     "codex",

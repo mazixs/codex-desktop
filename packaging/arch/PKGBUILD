@@ -5,10 +5,10 @@
 : "${CODEX_SOURCE_ARCHIVE:?CODEX_SOURCE_ARCHIVE must be set}"
 : "${CODEX_SOURCE_SHA256:?CODEX_SOURCE_SHA256 must be set}"
 
-pkgname=codex-desktop-bin
+pkgname=codex-desktop-native
 pkgver="${CODEX_PACKAGE_VERSION}"
 pkgrel="${CODEX_PKGREL:-1}"
-pkgdesc="Linux adaptation of OpenAI Codex Desktop bundled with Electron ${CODEX_ELECTRON_VERSION:-40.0.0}"
+pkgdesc="Prebuilt native Linux package for OpenAI Codex Desktop bundled with Electron ${CODEX_ELECTRON_VERSION:-40.0.0}"
 arch=('x86_64')
 url='https://github.com/mazixs/codex-desktop'
 license=('Apache')
@@ -39,8 +39,9 @@ optdepends=(
   'pipewire: WebRTC desktop sharing under Wayland'
   'xdg-utils: open external links with the desktop default handler'
 )
-provides=('codex-desktop')
-conflicts=('codex-desktop')
+provides=('codex-desktop' 'codex-desktop-bin')
+conflicts=('codex-desktop' 'codex-desktop-bin')
+replaces=('codex-desktop' 'codex-desktop-bin')
 options=('!strip' '!debug')
 source=("${CODEX_SOURCE_ARCHIVE}" 'codex-desktop.desktop' 'codex-desktop-wrapper.sh')
 sha256sums=("${CODEX_SOURCE_SHA256}" 'SKIP' 'SKIP')

@@ -98,6 +98,8 @@ main() {
     local remote_url=""
     local compare_url=""
     local notes_file=""
+    local portable_asset_name=""
+    local arch_asset_name=""
 
     parse_args "$@"
 
@@ -134,10 +136,30 @@ main() {
         upstream_version="$(node -e 'console.log(require(process.argv[1]).version)' "$PROJECT_ROOT/codex-linux-build/dist/package.json" 2>/dev/null || true)"
     fi
 
+    if [ -n "$upstream_version" ]; then
+        portable_asset_name="codex-desktop-native-${upstream_version}-linux-portable-x64.tar.gz"
+        arch_asset_name="codex-desktop-native-${upstream_version}-archlinux-x86_64.pkg.tar.zst"
+    fi
+
     notes_file="$(mktemp)"
     {
         printf '# %s\n\n' "$REF"
         printf 'Release date: %s\n\n' "$release_date"
+        printf 'Prebuilt native Linux release built from the upstream Codex Desktop DMG, patched for Linux, and shipped with bundled Electron.\n\n'
+        printf '## Release Assets\n\n'
+        if [ -n "$arch_asset_name" ]; then
+            printf -- '- Arch Linux installer: `%s`\n' "$arch_asset_name"
+        else
+            printf -- '- Arch Linux installer: `codex-desktop-native-<upstream-version>-archlinux-x86_64.pkg.tar.zst`\n'
+        fi
+        if [ -n "$portable_asset_name" ]; then
+            printf -- '- Portable Linux archive: `%s`\n' "$portable_asset_name"
+        else
+            printf -- '- Portable Linux archive: `codex-desktop-native-<upstream-version>-linux-portable-x64.tar.gz`\n'
+        fi
+        printf '\n## Migration\n\n'
+        printf -- '- Arch package name has changed from `codex-desktop-bin` to `codex-desktop-native`.\n'
+        printf -- '- Launcher/runtime desktop id remains `codex-desktop`; the shell command `codex` remains owned by `codex-cli`.\n'
         printf '## Scope\n\n'
         if [ -n "$previous_tag" ]; then
             printf -- "- Previous tag: \`%s\`\n" "$previous_tag"

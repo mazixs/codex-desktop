@@ -16,8 +16,10 @@ ELECTRON_VERSION="${ELECTRON_VERSION:-40.0.0}"
 BUILD_ARCH="${BUILD_ARCH:-x64}"
 BUILD_PLATFORM="linux"
 APP_DESKTOP_ID="codex-desktop"
-APP_DISPLAY_NAME="Codex"
+APP_DISPLAY_NAME="Codex Desktop"
 APP_STARTUP_WM_CLASS="$APP_DESKTOP_ID"
+PACKAGE_PRODUCT_ID="codex-desktop-native"
+SKILLS_OVERRIDE_DIR="$PROJECT_ROOT/packaging/skills-overrides"
 PACKAGE_RELEASE=0
 INSTALL_DESKTOP_ENTRY=0
 CLEAN_OUTPUTS=0
@@ -235,6 +237,16 @@ prepare_working_copy() {
     cp "$WEBVIEW_SERVER_TEMPLATE" "$BUILD_DIR/webview-server.js"
 }
 
+apply_packaged_skill_overrides() {
+    if [ ! -d "$SKILLS_OVERRIDE_DIR" ]; then
+        return 0
+    fi
+
+    log "Applying packaged Linux skill overrides..."
+    mkdir -p "$BUILD_DIR/skills"
+    cp -a "$SKILLS_OVERRIDE_DIR/." "$BUILD_DIR/skills/"
+}
+
 apply_linux_desktop_identity() {
     local build_package_json="$BUILD_DIR/package.json"
 
@@ -376,6 +388,8 @@ PY
 
 patch_main_js() {
     local main_js="$BUILD_DIR/.vite/build/main.js"
+    local old_text=""
+    local new_text=""
 
     if [ ! -f "$main_js" ]; then
         err "main.js not found at $main_js"
@@ -399,6 +413,26 @@ patch_main_js() {
     # shellcheck disable=SC2016
     replace_literal "$main_js" 'visualEffectState:`active`' 'visualEffectState:null'
     replace_literal "$main_js" 'backgroundColor:Z7,backgroundMaterial:null' 'backgroundColor:r?ure:dre,backgroundMaterial:null' 1
+
+    old_text='function l7(e){let t=H(e),n=m.app.getAppPath();if(m.app.isPackaged)return t.join(n,`skills`);let r=t.join(n,`assets`,`skills`);if((0,f.existsSync)(r))return r;let i=t.join(n,`..`,`assets`,`skills`);return(0,f.existsSync)(i)?i:null}'
+    new_text='function l7(e){let t=H(e),n=m.app.getAppPath(),r=t.join(n,`skills`);if((0,f.existsSync)(r))return r;if(m.app.isPackaged)return r;let i=t.join(n,`assets`,`skills`);if((0,f.existsSync)(i))return i;let a=t.join(n,`..`,`skills`);if((0,f.existsSync)(a))return a;let o=t.join(n,`..`,`assets`,`skills`);return(0,f.existsSync)(o)?o:null}'
+    replace_literal "$main_js" "$old_text" "$new_text" 1
+
+    old_text='async function Tk({refresh:e=!1,preferWsl:t=!1,bundledRepoRoot:n=null,hostConfig:r}){let i=z(r)?r.terminal_command.join(` `):void 0,a=z(r)?await b_(r):y_({preferWsl:t,hostConfig:r}),o=H(r),s=o.join(a,`vendor_imports`),c=o.join(s,`skills`),l=Gk(o),u=Kk(o),d=u.map(e=>o.join(c,e)),f=o.join(c,l),p=o.join(s,`skills-curated-cache.json`),m=i||!n?null:o.resolve(n),h=m?u.map(e=>o.join(m,e)):null,g=m?o.join(m,l):null,_=await Uk(p,r),v=e||!_||Vk(_),y=await Hk(o.join(c,`.git`),r),b=await Hk(f,r),x=g?await Hk(g,r):!1;try{if(!e&&!y&&!b&&x){let e=await Ek({repoRoot:m??c,recommendedRoots:h??d,path:o,hostConfig:r}),t=Date.now();return await Wk(p,{fetchedAt:t,skills:e},r),{skills:e,fetchedAt:t,source:`bundled`,repoRoot:m??null,error:null}}let t=!1;v&&(y||!b)&&(await Ik({repoRoot:c,vendorRoot:s,hostConfig:r}),await Lk(c,r),await Rk(c,u,r),t=!0);let n=await Ek({repoRoot:c,recommendedRoots:d,path:o,hostConfig:r}),i=t?Date.now():_?.fetchedAt??Date.now();return await Wk(p,{fetchedAt:i,skills:n},r),{skills:n,fetchedAt:i,source:t?`git`:`cache`,repoRoot:c,error:null}}catch(e){let t=e instanceof Error?e.message:String(e),n=!b&&!y&&x&&m?m:c;return vk().warning(`Failed to load recommended skills`,{safe:{},sensitive:{error:e}}),_?{skills:_.skills,fetchedAt:_.fetchedAt,source:`cache`,repoRoot:n,error:t}:{skills:[],fetchedAt:null,source:`cache`,repoRoot:n,error:t}}}'
+    new_text='async function Tk({refresh:e=!1,preferWsl:t=!1,bundledRepoRoot:n=null,hostConfig:r}){let i=z(r)?r.terminal_command.join(` `):void 0,a=z(r)?await b_(r):y_({preferWsl:t,hostConfig:r}),o=H(r),s=o.join(a,`vendor_imports`),c=o.join(s,`skills`),l=Gk(o),u=Kk(o),d=u.map(e=>o.join(c,e)),f=o.join(c,l),p=o.join(s,`skills-curated-cache.json`),m=i||!n?null:o.resolve(n),h=m?u.map(e=>o.join(m,e)):[],g=m?o.join(m,l):null,_=await Uk(p,r),v=e||!_||Vk(_),y=await Hk(o.join(c,`.git`),r),b=await Hk(f,r),x=g?await Hk(g,r):!1,S=async()=>x&&m?Ek({repoRoot:m,recommendedRoots:h,path:o,hostConfig:r,sourceTag:`bundled-override`}):[];try{if(!e&&!y&&!b&&x){let e=logBundledSkillOverrides(await S(),`bundled`),t=Date.now();return await Wk(p,{fetchedAt:t,skills:e},r),{skills:e,fetchedAt:t,source:`bundled`,repoRoot:m??null,error:null}}let t=!1;v&&(y||!b)&&(await Ik({repoRoot:c,vendorRoot:s,hostConfig:r}),await Lk(c,r),await Rk(c,u,r),t=!0);let n=await Ek({repoRoot:c,recommendedRoots:d,path:o,hostConfig:r,sourceTag:t?`git`:`cache`}),i=logBundledSkillOverrides(mergeRecommendedSkillLists(await S(),n),t?`git`:`cache`),a=t?Date.now():_?.fetchedAt??Date.now();return await Wk(p,{fetchedAt:a,skills:i},r),{skills:i,fetchedAt:a,source:t?`git`:`cache`,repoRoot:c,error:null}}catch(e){let t=e instanceof Error?e.message:String(e),n=!b&&!y&&x&&m?m:c,i=await S().catch(()=>[]);return vk().warning(`Failed to load recommended skills`,{safe:{},sensitive:{error:e}}),_?{skills:logBundledSkillOverrides(mergeRecommendedSkillLists(i,_.skills),`cache`),fetchedAt:_.fetchedAt,source:`cache`,repoRoot:n,error:t}:{skills:i,fetchedAt:null,source:i.length>0?`bundled`:`cache`,repoRoot:n,error:t}}}'
+    replace_literal "$main_js" "$old_text" "$new_text" 1
+
+    old_text='async function Ek({repoRoot:e,recommendedRoots:t,path:n,hostConfig:r}){let i=new Map,a=await Promise.all(t.map(async t=>Dk({recommendedRoot:t,repoRoot:e,path:n,hostConfig:r})));for(let e of a)for(let t of e)i.has(t.id)||i.set(t.id,t);return Array.from(i.values()).sort((e,t)=>e.name.localeCompare(t.name))}'
+    new_text='function skillIconMimeType(e){switch(e){case `.svg`:return `image/svg+xml`;case `.png`:return `image/png`;case `.jpg`:case `.jpeg`:return `image/jpeg`;case `.webp`:return `image/webp`;default:return null}}async function normalizeSkillIconUrl(e,t,n,r){if(!e)return null;if(/^https?:\/\//i.test(e)||e.startsWith(`data:`))return e;let i=n.isAbsolute(e)?e:n.resolve(t,e),a=skillIconMimeType(n.extname(i).toLowerCase());if(!a)return i;try{let e=await V.readFileBase64(i,r);return`data:${a};base64,${e.toString(`base64`)}`}catch{return i}}function mergeRecommendedSkillLists(e,t){let n=new Map;for(let r of[...e,...t])n.has(r.id)||n.set(r.id,r);return Array.from(n.values()).sort((e,t)=>e.name.localeCompare(t.name))}function logBundledSkillOverrides(e,t){let n=e.filter(e=>e.skillSource===`bundled-override`).map(e=>e.id);return n.length>0&&vk().info(`Using bundled skill overrides`,{safe:{skillIds:n,baseSource:t},sensitive:{}}),e}async function Ek({repoRoot:e,recommendedRoots:t,path:n,hostConfig:r,sourceTag:i=null}){let a=new Map,o=await Promise.all(t.map(async t=>Dk({recommendedRoot:t,repoRoot:e,path:n,hostConfig:r,sourceTag:i})));for(let e of o)for(let t of e)a.has(t.id)||a.set(t.id,t);return Array.from(a.values()).sort((e,t)=>e.name.localeCompare(t.name))}'
+    replace_literal "$main_js" "$old_text" "$new_text" 1
+
+    old_text='async function Dk({recommendedRoot:e,repoRoot:t,path:n,hostConfig:r}){if(!await Hk(e,r))return[];let i=await V.readdir(e,r);return(await Promise.all(i.map(async i=>{if(i.startsWith(`.`))return null;let a=n.join(e,i),o=(await V.stat(a,r)).isDirectory(),s=o?n.join(a,`SKILL.md`):a;if(!await Hk(s,r))return null;let c=Ak(await V.readFile(s,r)),l=await Mk({path:n,hostConfig:r,skillRoot:a}),u=o?i:n.parse(i).name,d=c.description??c.shortDescription??u,f=await Pk({path:n,hostConfig:r,skillRoot:a,skillId:u,iconSmall:c.iconSmall??l.iconSmall??null,iconLarge:c.iconLarge??l.iconLarge??null,isDirectory:o}),p=o?Bk(n,t,a):Bk(n,t,s);return{id:u,name:c.name??u,description:d,shortDescription:c.shortDescription??l.shortDescription,iconSmall:f.iconSmall,iconLarge:f.iconLarge,repoPath:p}}))).filter(e=>e!=null)}'
+    new_text='async function Dk({recommendedRoot:e,repoRoot:t,path:n,hostConfig:r,sourceTag:i=null}){if(!await Hk(e,r))return[];let a=await V.readdir(e,r);return(await Promise.all(a.map(async a=>{if(a.startsWith(`.`))return null;let o=n.join(e,a),s=(await V.stat(o,r)).isDirectory(),c=s?n.join(o,`SKILL.md`):o;if(!await Hk(c,r))return null;let l=Ak(await V.readFile(c,r)),u=await Mk({path:n,hostConfig:r,skillRoot:o}),d=s?a:n.parse(a).name,f=l.description??l.shortDescription??d,p=await Pk({path:n,hostConfig:r,skillRoot:o,skillId:d,iconSmall:l.iconSmall??u.iconSmall??null,iconLarge:l.iconLarge??u.iconLarge??null,isDirectory:s}),m=s?Bk(n,t,o):Bk(n,t,c);return{id:d,name:l.name??d,description:f,shortDescription:l.shortDescription??u.shortDescription,iconSmall:await normalizeSkillIconUrl(p.iconSmall,o,n,r),iconLarge:await normalizeSkillIconUrl(p.iconLarge,o,n,r),repoPath:m,skillSource:i}}))).filter(e=>e!=null)}'
+    replace_literal "$main_js" "$old_text" "$new_text" 1
+
+    old_text='async function Jk({repoRoot:e,bundledRepoRoot:t,repoPath:n,hostConfig:r}){let i=Yk(e,n,r);if(await Xk(i,r))return i;if(!t)return null;let a=Yk(t,n,r);return await Xk(a,r)?a:null}'
+    new_text='async function Jk({repoRoot:e,bundledRepoRoot:t,repoPath:n,hostConfig:r}){if(t){let i=Yk(t,n,r);if(await Xk(i,r))return i}let a=Yk(e,n,r);return await Xk(a,r)?a:null}'
+    replace_literal "$main_js" "$old_text" "$new_text" 1
 
     log "main.js patched successfully"
 }
@@ -481,15 +515,12 @@ EOF
 
 package_release() {
     local upstream_version
-    local release_label
     local package_name
     local package_dir
     local archive_path
 
     upstream_version="$(node -e 'console.log(require(process.argv[1]).version)' "$BUILD_DIR/package.json")"
-    release_label="${RELEASE_TAG:-$upstream_version}"
-    release_label="${release_label#refs/tags/}"
-    package_name="codex-desktop-${release_label}-${BUILD_PLATFORM}-${BUILD_ARCH}"
+    package_name="${PACKAGE_PRODUCT_ID}-${upstream_version}-${BUILD_PLATFORM}-portable-${BUILD_ARCH}"
     package_dir="$ARTIFACTS_DIR/$package_name"
     archive_path="$ARTIFACTS_DIR/$package_name.tar.gz"
 
@@ -596,6 +627,7 @@ main() {
     verify_dmg
     extract_app
     prepare_working_copy
+    apply_packaged_skill_overrides
     apply_linux_desktop_identity
     rebuild_native_modules
     patch_main_js

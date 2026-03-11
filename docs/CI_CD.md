@@ -19,8 +19,10 @@ Smoke build:
 
 - runs on non-PR events
 - builds the portable Linux artifact
+- verifies the portable bundle contains bundled Electron and can launch under `xvfb-run`
 - uploads the resulting archive, checksum, and build metadata as workflow artifacts
 - runs a second smoke job that converts the portable archive into an Arch `pkg.tar.zst` inside an `archlinux` container
+- installs that Arch package with `pacman -U` and runs a headless launch smoke test
 
 ### `release.yml`
 
@@ -30,7 +32,9 @@ Release steps:
 
 - installs the same build toolchain as CI
 - builds the portable artifact with `RELEASE_TAG=$GITHUB_REF_NAME`
+- verifies the portable bundle contains bundled Electron and can launch under `xvfb-run`
 - turns that artifact into a pacman package via `scripts/build-arch-package.sh` and `packaging/arch/PKGBUILD`
+- installs the pacman package in the Arch container and runs a headless launch smoke test
 - generates release notes from commits between the previous tag and the current tag
 - creates or updates the GitHub Release
 - uploads the portable archive, the Arch package, checksums, and metadata
@@ -64,7 +68,7 @@ Fast validation:
 
 ```bash
 pnpm run verify
-shellcheck build.sh start.sh ../scripts/generate-release-notes.sh ../scripts/build-arch-package.sh ../packaging/arch/codex-desktop-wrapper.sh
+shellcheck build.sh start.sh ../scripts/generate-release-notes.sh ../scripts/build-arch-package.sh ../packaging/arch/codex-desktop-wrapper.sh ../packaging/skills-overrides/.curated/playwright/scripts/playwright_cli.sh
 ```
 
 Portable package:
@@ -101,15 +105,16 @@ Each packaged release contains:
 
 GitHub Release uploads:
 
-- `codex-desktop-<tag>-linux-x64.tar.gz`
-- `codex-desktop-<tag>-linux-x64.tar.gz.sha256`
-- `codex-desktop-bin-<pkgver>-1-x86_64.pkg.tar.zst`
-- `codex-desktop-bin-<pkgver>-1-x86_64.pkg.tar.zst.sha256`
+- `codex-desktop-native-<upstream-version>-linux-portable-x64.tar.gz`
+- `codex-desktop-native-<upstream-version>-linux-portable-x64.tar.gz.sha256`
+- `codex-desktop-native-<upstream-version>-archlinux-x86_64.pkg.tar.zst`
+- `codex-desktop-native-<upstream-version>-archlinux-x86_64.pkg.tar.zst.sha256`
 - `build-metadata.env`
-- `release-notes.md`
 
 ## Operational Notes
 
 - No extra GitHub secrets are required; the workflows use the default `GITHUB_TOKEN`.
 - The release flow is idempotent for the same tag: rerunning it updates the existing release and replaces uploaded files.
 - Because the build depends on the official upstream DMG, network access to OpenAI's download host is required during smoke builds and releases.
+- The package name exposed to pacman is `codex-desktop-native`; runtime launcher names remain `codex-desktop`.
+- The Arch Linux release asset uses a platform-explicit filename, while the package metadata inside it still resolves to `codex-desktop-native` with pacman version/release fields.

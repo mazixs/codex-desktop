@@ -1,7 +1,7 @@
 <div align="center">
   <img src="assets/codex-logo.png" alt="OpenAI Codex Logo" width="128" height="128" />
   <h1>OpenAI Codex Desktop for Linux</h1>
-  <p><b>Linux build and release tooling for the official macOS Codex Desktop app.</b></p>
+  <p><b>Native Linux packaging and release tooling for the official macOS Codex Desktop app.</b></p>
 </div>
 
 ## Overview
@@ -12,7 +12,7 @@ This repository adapts the official macOS Codex Desktop distribution to Linux by
 - extracting `app.asar`
 - rebuilding macOS-native modules as Linux ELF binaries
 - patching Linux-incompatible Electron code paths
-- packaging a portable Linux artifact
+- packaging a portable Linux artifact and an installable Arch Linux package
 
 The project remains an unofficial port. The technical approach works, but it is inherently coupled to upstream bundle internals and should be treated as a maintained compatibility layer, not a stable public API.
 
@@ -20,9 +20,9 @@ The project remains an unofficial port. The technical approach works, but it is 
 
 What is validated:
 
-- the repository now builds a portable Linux artifact from a tagged pipeline
+- the repository now builds a prebuilt native Linux release from a tagged pipeline
 - release notes are generated automatically from commit history between tags
-- CI runs syntax, shell validation, and a smoke build on GitHub Actions
+- CI runs syntax checks, shell validation, portable packaging, and Arch install/launch smoke tests on GitHub Actions
 
 What is still fragile by design:
 
@@ -80,12 +80,12 @@ git push origin v1.0.0
 
 After the tag is pushed:
 
-- GitHub Actions builds the portable Linux package
-- a second job turns that artifact into `codex-desktop-bin-<version>-x86_64.pkg.tar.zst` for Arch Linux
+- GitHub Actions builds the portable Linux archive `codex-desktop-native-<upstream-version>-linux-portable-x64.tar.gz`
+- a second job turns that artifact into the installable Arch Linux package `codex-desktop-native-<upstream-version>-archlinux-x86_64.pkg.tar.zst`
 - `scripts/generate-release-notes.sh` collects commit subjects and bodies since the previous tag
 - the workflow creates or updates the GitHub Release and uploads both packages plus checksums
 
-The CI/CD details are documented in [docs/CI_CD.md](docs/CI_CD.md). Each tagged release now publishes both a portable `tar.gz` and an Arch Linux `pkg.tar.zst`.
+The CI/CD details are documented in [docs/CI_CD.md](docs/CI_CD.md). Each tagged release now publishes both a portable Linux archive and an Arch Linux installer, both with bundled Electron.
 
 ## Repository Layout
 

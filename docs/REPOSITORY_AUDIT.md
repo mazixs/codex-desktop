@@ -63,7 +63,7 @@ Given the current architecture, the optimal path is not a full rewrite. The righ
 1. Keep the DMG-to-Linux adaptation model.
 2. Add guardrails around patch application.
 3. Separate build, local desktop installation, and release packaging concerns.
-4. Publish one portable Linux artifact per tag.
+4. Publish one portable Linux artifact plus one installable Arch Linux package per tag.
 5. Generate release notes from commits between tags so every iteration is traceable.
 
 That is the path implemented in this repository now.
@@ -74,8 +74,8 @@ These are real limits of the project, not missing work:
 
 - The port depends on reverse-engineered upstream bundle structure.
 - A future upstream rename inside minified code can invalidate patch points.
-- The project does not yet have an automated runtime UI test suite for the adapted application.
-- Releases now include a native Arch Linux `pkg.tar.zst`, but there is still no `.deb` or `.rpm` pipeline.
+- The project still does not have a full automated runtime UI test suite for the adapted application.
+- Releases now include a native Arch Linux installer package, but there is still no `.deb` or `.rpm` pipeline.
 - The release workflow builds on Linux `x64` only.
 
 ## Recommended Next Steps

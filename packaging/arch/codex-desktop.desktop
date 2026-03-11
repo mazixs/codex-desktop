@@ -1,6 +1,6 @@
 #!/usr/bin/env xdg-open
 [Desktop Entry]
-Name=Codex
+Name=Codex Desktop
 Comment=OpenAI Codex Desktop for Linux
 Comment[ru]=Нативный клиент OpenAI Codex Desktop для Linux
 Comment[es]=Cliente nativo de OpenAI Codex Desktop para Linux

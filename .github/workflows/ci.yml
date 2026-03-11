@@ -40,7 +40,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential file imagemagick p7zip-full python3 shellcheck
+          sudo apt-get install -y build-essential file imagemagick p7zip-full python3 shellcheck xvfb
 
       - name: Install JavaScript dependencies
         working-directory: codex-linux-build
@@ -57,6 +57,7 @@ jobs:
           shellcheck scripts/generate-release-notes.sh
           shellcheck scripts/build-arch-package.sh
           shellcheck packaging/arch/codex-desktop-wrapper.sh
+          shellcheck packaging/skills-overrides/.curated/playwright/scripts/playwright_cli.sh
 
       - name: Generate sample release notes
         run: ./scripts/generate-release-notes.sh --ref HEAD --output /tmp/release-notes.md
@@ -88,7 +89,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential file imagemagick p7zip-full python3
+          sudo apt-get install -y build-essential file imagemagick p7zip-full python3 xvfb
 
       - name: Install JavaScript dependencies
         working-directory: codex-linux-build
@@ -100,7 +101,7 @@ jobs:
 
       - name: Verify portable artifact integrity
         run: |
-          archive="$(find codex-linux-build/artifacts -maxdepth 1 -name 'codex-desktop-*-linux-x64.tar.gz' | head -n 1)"
+          archive="$(find codex-linux-build/artifacts -maxdepth 1 -name 'codex-desktop-native-*-linux-portable-*.tar.gz' | head -n 1)"
           test -n "$archive"
 
           # Electron runtime must be bundled (archive > 50 MB)
@@ -121,6 +122,19 @@ jobs:
             test -f "$root/icons/hicolor/${size}x${size}/apps/codex-desktop.png"
           done
           node --check "$root/dist/.vite/build/main.js"
+
+          mkdir -p "$tmpdir/home"
+          launch_log="$tmpdir/portable-launch.log"
+          launch_rc=0
+          HOME="$tmpdir/home" timeout 25s xvfb-run -a "$root/start.sh" >"$launch_log" 2>&1 || launch_rc=$?
+          if [ "$launch_rc" -ne 0 ] && [ "$launch_rc" -ne 124 ]; then
+            cat "$launch_log"
+            exit 1
+          fi
+          if grep -Eq 'Electron runtime not found|Build output not found|Codex CLI not found' "$launch_log"; then
+            cat "$launch_log"
+            exit 1
+          fi
 
           rm -rf "$tmpdir"
 
@@ -161,11 +175,15 @@ jobs:
             archlinux:latest \
             bash -lc '
               set -euo pipefail
-              pacman -Syu --noconfirm base-devel
+              pacman -Syu --noconfirm base-devel xorg-server-xvfb xorg-xauth
               useradd -m builder
               chown -R builder:builder /workspace /portable /output
               archive="$(find /portable -maxdepth 1 -name "*.tar.gz" | head -n 1)"
               runuser -u builder -- bash -lc "cd /workspace && ./scripts/build-arch-package.sh --source \"$archive\" --metadata /portable/build-metadata.env --output-dir /output"
+              package_file="$(find /output -maxdepth 1 -name \"codex-desktop-native-*-archlinux-x86_64.pkg.tar.zst\" | head -n 1)"
+              test -n "$package_file"
+              pacman -U --noconfirm "$package_file"
+              runuser -u builder -- bash -lc "mkdir -p /home/builder/.cache /home/builder/.config /home/builder/.local/share && launch_rc=0 && timeout 25s xvfb-run -a codex-desktop >/tmp/codex-desktop-smoke.log 2>&1 || launch_rc=\$?; if [ \"\$launch_rc\" -ne 0 ] && [ \"\$launch_rc\" -ne 124 ]; then cat /tmp/codex-desktop-smoke.log; exit 1; fi; if grep -Eq \"Electron runtime not found|Build output not found|Codex CLI not found\" /tmp/codex-desktop-smoke.log; then cat /tmp/codex-desktop-smoke.log; exit 1; fi"
             '
 
       - name: Upload Arch smoke artifacts
