@@ -394,8 +394,10 @@ patch_main_js() {
     replace_literal "$main_js" 'require(`electron-squirrel-startup`)' 'false'
     replace_literal "$main_js" 'transparent:!0' 'transparent:!1' 1
     replace_literal "$main_js" 'transparent:true' 'transparent:false'
-    replace_literal "$main_js" 'vibrancy:' 'vibrancy:null,' 1
-    replace_literal "$main_js" 'visualEffectState:' 'visualEffectState:null,'
+    # shellcheck disable=SC2016
+    replace_literal "$main_js" 'vibrancy:`menu`' 'vibrancy:null' 1
+    # shellcheck disable=SC2016
+    replace_literal "$main_js" 'visualEffectState:`active`' 'visualEffectState:null'
     replace_literal "$main_js" 'backgroundColor:Z7,backgroundMaterial:null' 'backgroundColor:r?ure:dre,backgroundMaterial:null' 1
 
     log "main.js patched successfully"
@@ -507,7 +509,7 @@ package_release() {
 
     (
         cd "$package_dir"
-        CI=true pnpm install --prod --frozen-lockfile
+        CI=true npm install --production --no-audit --no-fund --loglevel=error
     )
 
     if [ -f "$SCRIPT_DIR/codex-icon.png" ]; then

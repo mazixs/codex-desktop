@@ -98,16 +98,31 @@ jobs:
         working-directory: codex-linux-build
         run: pnpm run package:portable
 
-      - name: Verify generated icon assets
+      - name: Verify portable artifact integrity
         run: |
-          for size in 16 24 32 48 64 128 256 512; do
-            test -f "codex-linux-build/artifacts/icons/hicolor/${size}x${size}/apps/codex-desktop.png"
-          done
           archive="$(find codex-linux-build/artifacts -maxdepth 1 -name 'codex-desktop-*-linux-x64.tar.gz' | head -n 1)"
           test -n "$archive"
+
+          # Electron runtime must be bundled (archive > 50 MB)
+          archive_size="$(stat -c%s "$archive")"
+          if [ "$archive_size" -lt 52428800 ]; then
+            echo "::error::Portable archive is only $((archive_size / 1048576)) MB — Electron runtime is likely missing"
+            exit 1
+          fi
+
+          # Extract once, verify on disk
+          tmpdir="$(mktemp -d)"
+          tar -xzf "$archive" -C "$tmpdir"
+          root="$(find "$tmpdir" -maxdepth 1 -mindepth 1 -type d | head -n 1)"
+
+          test -x "$root/node_modules/electron/dist/electron"
           for size in 16 24 32 48 64 128 256 512; do
-            tar -tzf "$archive" | grep -q "icons/hicolor/${size}x${size}/apps/codex-desktop.png"
+            test -f "codex-linux-build/artifacts/icons/hicolor/${size}x${size}/apps/codex-desktop.png"
+            test -f "$root/icons/hicolor/${size}x${size}/apps/codex-desktop.png"
           done
+          node --check "$root/dist/.vite/build/main.js"
+
+          rm -rf "$tmpdir"
 
       - name: Upload smoke-build artifacts
         uses: actions/upload-artifact@v4
