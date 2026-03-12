@@ -500,6 +500,7 @@ patch_main_js() {
 
     # Hf=#00000000 is a fully-transparent background used by macOS vibrancy;
     # on Linux without vibrancy the window becomes invisible. Replace with opaque dark bg.
+    # shellcheck disable=SC2016
     replace_literal "$main_bundle" 'Hf=`#00000000`' 'Hf=`#1e1e1e`'
 
     # shellcheck disable=SC2016
