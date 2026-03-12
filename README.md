@@ -22,7 +22,7 @@ What is validated:
 
 - the repository now builds a prebuilt native Linux release from a tagged pipeline
 - release notes are generated automatically from commit history between tags
-- CI runs syntax checks, shell validation, portable packaging, and Arch install/launch smoke tests on GitHub Actions
+- CI runs workflow linting, shell validation, portable packaging, release-contract checks, and Arch install/launch smoke tests on GitHub Actions
 
 What is still fragile by design:
 
@@ -82,10 +82,23 @@ After the tag is pushed:
 
 - GitHub Actions builds the portable Linux archive `codex-desktop-native-<upstream-version>-linux-portable-x64.tar.gz`
 - a second job turns that artifact into the installable Arch Linux package `codex-desktop-native-<upstream-version>-archlinux-x86_64.pkg.tar.zst`
-- `scripts/generate-release-notes.sh` collects commit subjects and bodies since the previous tag
+- `scripts/generate-release-notes.sh` collects commit subjects and bodies since the previous tag and derives platform-specific asset names from `build-metadata.env`
 - the workflow creates or updates the GitHub Release and uploads both packages plus checksums
 
 The CI/CD details are documented in [docs/CI_CD.md](docs/CI_CD.md). Each tagged release now publishes both a portable Linux archive and an Arch Linux installer, both with bundled Electron.
+
+## CI/CD Contract
+
+The repository treats CI/CD as a product contract, not a best-effort build:
+
+- Node is pinned to `24` in GitHub Actions
+- `pnpm` is activated only through `corepack` using the version from `codex-linux-build/package.json`
+- workflow syntax is linted with `actionlint`
+- the portable artifact must contain bundled Electron, Linux icons, packaged skill overrides, metadata, and a working launcher
+- the Arch artifact must install through `pacman -U`, contain the bundled runtime under `/opt/codex-desktop`, and survive a headless smoke launch
+- releases are only published after the asset contract, checksums, metadata, and release notes all validate
+
+Repo-controlled regressions should fail with deterministic messages. External failures such as GitHub outages, upstream DMG CDN issues, or package mirror/network errors remain outside the repository's control and are treated as retriable infrastructure failures.
 
 ## Repository Layout
 

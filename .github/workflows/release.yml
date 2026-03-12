@@ -12,6 +12,9 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  ACTIONLINT_VERSION: 1.7.8
+
 jobs:
   build-portable:
     runs-on: ubuntu-24.04
@@ -27,18 +30,23 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 24
-          cache: pnpm
-          cache-dependency-path: codex-linux-build/pnpm-lock.yaml
 
       - name: Enable Corepack pnpm
-        run: |
-          corepack enable
-          corepack prepare pnpm@10.30.3 --activate
+        run: ./scripts/enable-pnpm.sh
 
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential file imagemagick p7zip-full python3 shellcheck xvfb
+
+      - name: Install actionlint
+        run: |
+          export ACTIONLINT_INSTALL_DIR=/tmp/actionlint/bin
+          ./scripts/install-actionlint.sh
+          echo "/tmp/actionlint/bin" >> "$GITHUB_PATH"
+
+      - name: Validate GitHub Actions workflows
+        run: PATH="/tmp/actionlint/bin:$PATH" ./scripts/validate-workflows.sh
 
       - name: Install JavaScript dependencies
         working-directory: codex-linux-build
@@ -60,46 +68,13 @@ jobs:
         run: pnpm run package:portable
 
       - name: Verify portable artifact integrity
-        run: |
-          archive="$(find codex-linux-build/artifacts -maxdepth 1 -name 'codex-desktop-native-*-linux-portable-*.tar.gz' | head -n 1)"
-          test -n "$archive"
-
-          # Electron runtime must be bundled (archive > 50 MB)
-          archive_size="$(stat -c%s "$archive")"
-          if [ "$archive_size" -lt 52428800 ]; then
-            echo "::error::Portable archive is only $((archive_size / 1048576)) MB — Electron runtime is likely missing"
-            exit 1
-          fi
-
-          # Extract once, verify on disk
-          tmpdir="$(mktemp -d)"
-          tar -xzf "$archive" -C "$tmpdir"
-          root="$(find "$tmpdir" -maxdepth 1 -mindepth 1 -type d | head -n 1)"
-
-          test -x "$root/node_modules/electron/dist/electron"
-          for size in 16 24 32 48 64 128 256 512; do
-            test -f "codex-linux-build/artifacts/icons/hicolor/${size}x${size}/apps/codex-desktop.png"
-            test -f "$root/icons/hicolor/${size}x${size}/apps/codex-desktop.png"
-          done
-          node --check "$root/dist/.vite/build/main.js"
-
-          mkdir -p "$tmpdir/home"
-          launch_log="$tmpdir/portable-launch.log"
-          launch_rc=0
-          HOME="$tmpdir/home" timeout 25s xvfb-run -a "$root/start.sh" >"$launch_log" 2>&1 || launch_rc=$?
-          if [ "$launch_rc" -ne 0 ] && [ "$launch_rc" -ne 124 ]; then
-            cat "$launch_log"
-            exit 1
-          fi
-          if grep -Eq 'Electron runtime not found|Build output not found|Codex CLI not found' "$launch_log"; then
-            cat "$launch_log"
-            exit 1
-          fi
-
-          rm -rf "$tmpdir"
+        run: ./scripts/verify-portable-artifact.sh --artifacts-dir codex-linux-build/artifacts
 
       - name: Generate release notes
-        run: ./scripts/generate-release-notes.sh --ref "${GITHUB_REF_NAME}" --output codex-linux-build/artifacts/release-notes.md
+        run: ./scripts/generate-release-notes.sh --ref "${GITHUB_REF_NAME}" --metadata codex-linux-build/artifacts/build-metadata.env --output codex-linux-build/artifacts/release-notes.md
+
+      - name: Verify release notes and asset contract
+        run: ./scripts/verify-portable-artifact.sh --artifacts-dir codex-linux-build/artifacts --release-notes codex-linux-build/artifacts/release-notes.md
 
       - name: Upload portable release bundle
         uses: actions/upload-artifact@v6
@@ -138,15 +113,15 @@ jobs:
             archlinux:latest \
             bash -lc '
               set -euo pipefail
+              source /workspace/scripts/ci-lib.sh
               pacman -Syu --noconfirm base-devel xorg-server-xvfb xorg-xauth
               useradd -m builder
               chown -R builder:builder /workspace /portable /output
-              archive="$(find /portable -maxdepth 1 -name "*.tar.gz" | head -n 1)"
+              archive="$(find_single_matching_file /portable "$(portable_release_glob)" "portable archive")"
               runuser -u builder -- bash -lc "cd /workspace && ./scripts/build-arch-package.sh --source \"$archive\" --metadata /portable/build-metadata.env --output-dir /output"
-              package_file="$(find /output -maxdepth 1 -name \"codex-desktop-native-*-archlinux-x86_64.pkg.tar.zst\" | head -n 1)"
-              test -n "$package_file"
-              pacman -U --noconfirm "$package_file"
-              runuser -u builder -- bash -lc "mkdir -p /home/builder/.cache /home/builder/.config /home/builder/.local/share && launch_rc=0 && timeout 25s xvfb-run -a codex-desktop >/tmp/codex-desktop-smoke.log 2>&1 || launch_rc=\$?; if [ \"\$launch_rc\" -ne 0 ] && [ \"\$launch_rc\" -ne 124 ]; then cat /tmp/codex-desktop-smoke.log; exit 1; fi; if grep -Eq \"Electron runtime not found|Build output not found|Codex CLI not found\" /tmp/codex-desktop-smoke.log; then cat /tmp/codex-desktop-smoke.log; exit 1; fi"
+              package_file="$(find_single_matching_file /output "$(arch_release_glob)" "Arch package")"
+              cd /workspace
+              ./scripts/verify-arch-package.sh --package "$package_file" --smoke-user builder
             '
 
       - name: Upload Arch package bundle
@@ -166,6 +141,9 @@ jobs:
     timeout-minutes: 30
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
       - name: Download portable release bundle
         uses: actions/download-artifact@v7
         with:
@@ -178,22 +156,26 @@ jobs:
           name: arch-release-${{ github.ref_name }}
           path: /tmp/release-arch
 
+      - name: Verify release asset contract
+        run: ./scripts/verify-release-assets.sh --portable-dir /tmp/release-portable --arch-dir /tmp/release-arch
+
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          source ./scripts/ci-lib.sh
           repo="${{ github.repository }}"
-          portable_archive="$(find /tmp/release-portable -maxdepth 1 -name 'codex-desktop-native-*-linux-portable-*.tar.gz' | head -n 1)"
+          command -v gh >/dev/null 2>&1 || { echo "::error::gh CLI is not available on the runner"; exit 1; }
+          portable_archive="$(find_single_matching_file /tmp/release-portable "$(portable_release_glob)" "portable release archive")"
           portable_checksum="${portable_archive}.sha256"
           build_metadata="/tmp/release-portable/build-metadata.env"
-          arch_archive="$(find /tmp/release-arch -maxdepth 1 -name 'codex-desktop-native-*-archlinux-x86_64.pkg.tar.zst' | head -n 1)"
+          arch_archive="$(find_single_matching_file /tmp/release-arch "$(arch_release_glob)" "Arch release package")"
           arch_checksum="${arch_archive}.sha256"
-          test -n "$portable_archive"
-          test -f "$portable_checksum"
-          test -f "$build_metadata"
-          test -n "$arch_archive"
-          test -f "$arch_checksum"
+          require_file "$portable_checksum"
+          require_file "$build_metadata"
+          require_file "$arch_checksum"
+          require_file /tmp/release-portable/release-notes.md
           if gh release view "${GITHUB_REF_NAME}" --repo "$repo" >/dev/null 2>&1; then
             gh release upload "${GITHUB_REF_NAME}" \
               "$portable_archive" \

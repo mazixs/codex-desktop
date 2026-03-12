@@ -3,6 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+# shellcheck source=../scripts/ci-lib.sh
+source "$PROJECT_ROOT/scripts/ci-lib.sh"
 EXTRACTED_DIR="$PROJECT_ROOT/codex_extracted"
 APP_UNPACKED="$EXTRACTED_DIR/app_unpacked"
 BUILD_DIR="$SCRIPT_DIR/dist"
@@ -508,9 +510,13 @@ write_build_metadata() {
     local output_path="$1"
     local upstream_version
     local release_label
+    local portable_dirname
+    local portable_filename
 
     upstream_version="$(node -e 'console.log(require(process.argv[1]).version)' "$BUILD_DIR/package.json")"
     release_label="${RELEASE_TAG:-$upstream_version}"
+    portable_dirname="$(portable_release_basename "$upstream_version")"
+    portable_filename="$(portable_release_filename "$upstream_version")"
 
     cat > "$output_path" <<EOF
 RELEASE_TAG=$release_label
@@ -518,6 +524,9 @@ UPSTREAM_VERSION=$upstream_version
 TARGET_PLATFORM=$BUILD_PLATFORM
 TARGET_ARCH=$BUILD_ARCH
 ELECTRON_VERSION=$ELECTRON_VERSION
+PACKAGE_PRODUCT_ID=$PACKAGE_PRODUCT_ID
+PORTABLE_DIRNAME=$portable_dirname
+PORTABLE_ARCHIVE_NAME=$portable_filename
 BUILD_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 SOURCE_DMG=$DMG_FILE
 EOF
@@ -530,7 +539,7 @@ package_release() {
     local archive_path
 
     upstream_version="$(node -e 'console.log(require(process.argv[1]).version)' "$BUILD_DIR/package.json")"
-    package_name="${PACKAGE_PRODUCT_ID}-${upstream_version}-${BUILD_PLATFORM}-portable-${BUILD_ARCH}"
+    package_name="$(portable_release_basename "$upstream_version")"
     package_dir="$ARTIFACTS_DIR/$package_name"
     archive_path="$ARTIFACTS_DIR/$package_name.tar.gz"
 

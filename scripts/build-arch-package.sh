@@ -3,6 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+# shellcheck source=./ci-lib.sh
+source "$SCRIPT_DIR/ci-lib.sh"
 SOURCE_ARCHIVE=""
 METADATA_FILE=""
 OUTPUT_DIR=""
@@ -175,7 +177,7 @@ main() {
     fi
 
     release_asset_version="$package_version"
-    release_asset_name="codex-desktop-native-${release_asset_version}-archlinux-x86_64.pkg.tar.zst"
+    release_asset_name="$(arch_release_filename "$release_asset_version")"
 
     cp "$canonical_package_path" "$OUTPUT_DIR/$release_asset_name"
     (

@@ -3,15 +3,19 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+# shellcheck source=./ci-lib.sh
+source "$SCRIPT_DIR/ci-lib.sh"
 OUTPUT_PATH=""
 REF=""
+METADATA_PATH=""
 
 usage() {
     cat <<'EOF'
-Usage: ./scripts/generate-release-notes.sh --ref <git-ref> [--output <path>]
+Usage: ./scripts/generate-release-notes.sh --ref <git-ref> [--metadata <build-metadata.env>] [--output <path>]
 
 Options:
   --ref REF       Git tag or commit-ish to build notes for
+  --metadata PATH Optional build-metadata.env to derive exact artifact names/version
   --output PATH   Write release notes to PATH instead of stdout
   --help          Show this help
 EOF
@@ -75,6 +79,14 @@ parse_args() {
                 OUTPUT_PATH="$2"
                 shift 2
                 ;;
+            --metadata)
+                if [ "$#" -lt 2 ]; then
+                    printf 'Missing value for --metadata\n' >&2
+                    exit 1
+                fi
+                METADATA_PATH="$2"
+                shift 2
+                ;;
             --help|-h)
                 usage
                 exit 0
@@ -111,6 +123,20 @@ main() {
 
     cd "$PROJECT_ROOT"
 
+    if [ -n "$METADATA_PATH" ]; then
+        if [ ! -f "$METADATA_PATH" ]; then
+            printf 'Metadata file not found: %s\n' "$METADATA_PATH" >&2
+            exit 1
+        fi
+        # shellcheck disable=SC1090
+        source "$METADATA_PATH"
+        upstream_version="${UPSTREAM_VERSION:-}"
+        portable_asset_name="${PORTABLE_ARCHIVE_NAME:-}"
+        if [ -n "$upstream_version" ]; then
+            arch_asset_name="$(arch_release_filename "$upstream_version")"
+        fi
+    fi
+
     ref_commit="$(git rev-parse "$REF^{commit}")"
     release_date="$(git log -1 --format=%cs "$ref_commit")"
     previous_tag="$(git describe --tags --abbrev=0 "$ref_commit^" 2>/dev/null || true)"
@@ -132,13 +158,16 @@ main() {
         compare_url=""
     fi
 
-    if [ -f "$PROJECT_ROOT/codex-linux-build/dist/package.json" ]; then
+    if [ -z "$upstream_version" ] && [ -f "$PROJECT_ROOT/codex-linux-build/dist/package.json" ]; then
         upstream_version="$(node -e 'console.log(require(process.argv[1]).version)' "$PROJECT_ROOT/codex-linux-build/dist/package.json" 2>/dev/null || true)"
     fi
 
-    if [ -n "$upstream_version" ]; then
-        portable_asset_name="codex-desktop-native-${upstream_version}-linux-portable-x64.tar.gz"
-        arch_asset_name="codex-desktop-native-${upstream_version}-archlinux-x86_64.pkg.tar.zst"
+    if [ -z "$portable_asset_name" ] && [ -n "$upstream_version" ]; then
+        portable_asset_name="$(portable_release_filename "$upstream_version")"
+    fi
+
+    if [ -z "$arch_asset_name" ] && [ -n "$upstream_version" ]; then
+        arch_asset_name="$(arch_release_filename "$upstream_version")"
     fi
 
     notes_file="$(mktemp)"

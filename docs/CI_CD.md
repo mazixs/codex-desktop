@@ -8,8 +8,10 @@ Runs on pull requests, pushes to `main`, and manual dispatch.
 
 Validation steps:
 
-- installs Node.js and pnpm
+- installs Node.js 24
+- activates the pinned pnpm version through `scripts/enable-pnpm.sh`
 - installs required Linux build dependencies
+- installs `actionlint` from the official release archive and validates `.github/workflows/*.yml`
 - runs `pnpm install --frozen-lockfile` in `codex-linux-build/`
 - checks shell syntax through `pnpm run verify`
 - runs `shellcheck` on the main shell entrypoints
@@ -32,10 +34,11 @@ Release steps:
 
 - installs the same build toolchain as CI
 - builds the portable artifact with `RELEASE_TAG=$GITHUB_REF_NAME`
-- verifies the portable bundle contains bundled Electron and can launch under `xvfb-run`
+- verifies the portable bundle contains bundled Electron, packaged skills overrides, icons, metadata, and can launch under `xvfb-run`
 - turns that artifact into a pacman package via `scripts/build-arch-package.sh` and `packaging/arch/PKGBUILD`
-- installs the pacman package in the Arch container and runs a headless launch smoke test
+- verifies the pacman package payload contract, installs it in the Arch container, and runs a headless launch smoke test
 - generates release notes from commits between the previous tag and the current tag
+- validates the release asset contract before publish
 - creates or updates the GitHub Release
 - uploads the portable archive, the Arch package, checksums, and metadata
 
@@ -52,8 +55,20 @@ The script includes:
 - upstream Codex version embedded in the built artifact when available
 - every commit subject in the range
 - every commit body in the range as the "comment" section
+- platform-specific asset labels for the Arch Linux installer and portable Linux archive
 
 That means a pushed tag automatically gets a release body containing the full commit commentary for the iteration.
+
+## Pipeline Contract
+
+The workflow and scripts share a single contract implemented in repository shell helpers:
+
+- [`scripts/ci-lib.sh`](../scripts/ci-lib.sh) defines canonical asset names and common failure helpers
+- [`scripts/verify-portable-artifact.sh`](../scripts/verify-portable-artifact.sh) validates portable archives before artifact upload and before release publication
+- [`scripts/verify-arch-package.sh`](../scripts/verify-arch-package.sh) validates pacman package payloads and launch behavior
+- [`scripts/verify-release-assets.sh`](../scripts/verify-release-assets.sh) validates the final publish inputs
+
+This means CI and release jobs do not reimplement archive naming or smoke logic independently in YAML.
 
 ## Local Commands
 
@@ -69,6 +84,14 @@ Fast validation:
 ```bash
 pnpm run verify
 shellcheck build.sh start.sh ../scripts/generate-release-notes.sh ../scripts/build-arch-package.sh ../packaging/arch/codex-desktop-wrapper.sh ../packaging/skills-overrides/.curated/playwright/scripts/playwright_cli.sh
+```
+
+Workflow linting:
+
+```bash
+cd ..
+ACTIONLINT_INSTALL_DIR=/tmp/actionlint/bin ./scripts/install-actionlint.sh
+PATH="/tmp/actionlint/bin:$PATH" ./scripts/validate-workflows.sh
 ```
 
 Portable package:
@@ -90,7 +113,7 @@ Manual release notes preview:
 
 ```bash
 cd ..
-./scripts/generate-release-notes.sh --ref v1.0.0
+./scripts/generate-release-notes.sh --ref v1.0.0 --metadata codex-linux-build/artifacts/build-metadata.env
 ```
 
 ## Artifact Contract
@@ -110,11 +133,13 @@ GitHub Release uploads:
 - `codex-desktop-native-<upstream-version>-archlinux-x86_64.pkg.tar.zst`
 - `codex-desktop-native-<upstream-version>-archlinux-x86_64.pkg.tar.zst.sha256`
 - `build-metadata.env`
+- `release-notes.md`
 
 ## Operational Notes
 
 - No extra GitHub secrets are required; the workflows use the default `GITHUB_TOKEN`.
 - The release flow is idempotent for the same tag: rerunning it updates the existing release and replaces uploaded files.
 - Because the build depends on the official upstream DMG, network access to OpenAI's download host is required during smoke builds and releases.
+- External failures such as DMG/CDN/network outages, apt mirror issues, or GitHub service issues are treated as retriable infrastructure failures, not repository regressions.
 - The package name exposed to pacman is `codex-desktop-native`; runtime launcher names remain `codex-desktop`.
 - The Arch Linux release asset uses a platform-explicit filename, while the package metadata inside it still resolves to `codex-desktop-native` with pacman version/release fields.
