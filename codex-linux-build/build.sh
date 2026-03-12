@@ -497,6 +497,11 @@ patch_main_js() {
 
     # --- Disable macOS/Windows-specific window appearance properties ---
     # These cause broken rendering on Linux (transparent windows, missing backgrounds)
+
+    # Hf=#00000000 is a fully-transparent background used by macOS vibrancy;
+    # on Linux without vibrancy the window becomes invisible. Replace with opaque dark bg.
+    replace_literal "$main_bundle" 'Hf=`#00000000`' 'Hf=`#1e1e1e`'
+
     # shellcheck disable=SC2016
     replace_literal "$main_bundle" 'transparent:!0' 'transparent:!1'
     # shellcheck disable=SC2016
