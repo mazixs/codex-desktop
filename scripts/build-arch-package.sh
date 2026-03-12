@@ -94,7 +94,7 @@ require_commands() {
 
 derive_package_version() {
     local release_label="$1"
-    local pkgver="${PACKAGE_VERSION:-${UPSTREAM_VERSION:-${release_label#v}}}"
+    local pkgver="${PACKAGE_VERSION:-${RELEASE_VERSION:-${UPSTREAM_VERSION:-${release_label#v}}}}"
 
     pkgver="${pkgver//-/_}"
     pkgver="${pkgver// /_}"
@@ -142,7 +142,7 @@ main() {
     # shellcheck disable=SC1090
     source "$METADATA_FILE"
 
-    release_label="${RELEASE_TAG:-${UPSTREAM_VERSION:-}}"
+    release_label="${RELEASE_TAG:-${RELEASE_VERSION:-${UPSTREAM_VERSION:-}}}"
     release_label="${release_label#refs/tags/}"
     if [ -z "$release_label" ]; then
         printf 'RELEASE_TAG/UPSTREAM_VERSION is missing in metadata.\n' >&2

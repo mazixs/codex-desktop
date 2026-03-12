@@ -107,6 +107,7 @@ main() {
     local commit_count=""
     local ref_commit=""
     local release_date=""
+    local release_version=""
     local upstream_version=""
     local remote_url=""
     local compare_url=""
@@ -131,9 +132,12 @@ main() {
         fi
         # shellcheck disable=SC1090
         source "$METADATA_PATH"
+        release_version="${RELEASE_VERSION:-}"
         upstream_version="${UPSTREAM_VERSION:-}"
         portable_asset_name="${PORTABLE_ARCHIVE_NAME:-}"
-        if [ -n "$upstream_version" ]; then
+        if [ -n "$release_version" ]; then
+            arch_asset_name="$(arch_release_filename "$release_version")"
+        elif [ -n "$upstream_version" ]; then
             arch_asset_name="$(arch_release_filename "$upstream_version")"
         fi
     fi
@@ -163,12 +167,16 @@ main() {
         upstream_version="$(node -e 'console.log(require(process.argv[1]).version)' "$PROJECT_ROOT/codex-linux-build/dist/package.json" 2>/dev/null || true)"
     fi
 
-    if [ -z "$portable_asset_name" ] && [ -n "$upstream_version" ]; then
-        portable_asset_name="$(portable_release_filename "$upstream_version")"
+    if [ -z "$release_version" ]; then
+        release_version="${upstream_version:-}"
     fi
 
-    if [ -z "$arch_asset_name" ] && [ -n "$upstream_version" ]; then
-        arch_asset_name="$(arch_release_filename "$upstream_version")"
+    if [ -z "$portable_asset_name" ] && [ -n "$release_version" ]; then
+        portable_asset_name="$(portable_release_filename "$release_version")"
+    fi
+
+    if [ -z "$arch_asset_name" ] && [ -n "$release_version" ]; then
+        arch_asset_name="$(arch_release_filename "$release_version")"
     fi
 
     notes_file="$(mktemp)"

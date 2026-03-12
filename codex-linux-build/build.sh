@@ -597,8 +597,22 @@ generate_icon_set() {
     done
 }
 
+resolve_release_version() {
+    local upstream_version="$1"
+    local version
+
+    if [ -n "${RELEASE_TAG:-}" ]; then
+        version="${RELEASE_TAG#v}"
+    else
+        version="$upstream_version"
+    fi
+
+    printf '%s\n' "$version"
+}
+
 write_build_metadata() {
     local output_path="$1"
+    local release_version="$2"
     local upstream_version
     local release_label
     local portable_dirname
@@ -606,11 +620,12 @@ write_build_metadata() {
 
     upstream_version="$(node -e 'console.log(require(process.argv[1]).version)' "$BUILD_DIR/package.json")"
     release_label="${RELEASE_TAG:-$upstream_version}"
-    portable_dirname="$(portable_release_basename "$upstream_version")"
-    portable_filename="$(portable_release_filename "$upstream_version")"
+    portable_dirname="$(portable_release_basename "$release_version")"
+    portable_filename="$(portable_release_filename "$release_version")"
 
     cat > "$output_path" <<EOF
 RELEASE_TAG=$release_label
+RELEASE_VERSION=$release_version
 UPSTREAM_VERSION=$upstream_version
 TARGET_PLATFORM=$BUILD_PLATFORM
 TARGET_ARCH=$BUILD_ARCH
@@ -625,12 +640,14 @@ EOF
 
 package_release() {
     local upstream_version
+    local release_version
     local package_name
     local package_dir
     local archive_path
 
     upstream_version="$(node -e 'console.log(require(process.argv[1]).version)' "$BUILD_DIR/package.json")"
-    package_name="$(portable_release_basename "$upstream_version")"
+    release_version="$(resolve_release_version "$upstream_version")"
+    package_name="$(portable_release_basename "$release_version")"
     package_dir="$ARTIFACTS_DIR/$package_name"
     archive_path="$ARTIFACTS_DIR/$package_name.tar.gz"
 
@@ -663,7 +680,7 @@ package_release() {
         cp -a "$ARTIFACTS_DIR/icons" "$package_dir/"
     fi
 
-    write_build_metadata "$package_dir/build-metadata.env"
+    write_build_metadata "$package_dir/build-metadata.env" "$release_version"
 
     tar -C "$ARTIFACTS_DIR" -czf "$archive_path" "$package_name"
     (
@@ -745,7 +762,9 @@ main() {
 
     mkdir -p "$ARTIFACTS_DIR"
     generate_icon_set
-    write_build_metadata "$ARTIFACTS_DIR/build-metadata.env"
+    local _upstream_ver
+    _upstream_ver="$(node -e 'console.log(require(process.argv[1]).version)' "$BUILD_DIR/package.json")"
+    write_build_metadata "$ARTIFACTS_DIR/build-metadata.env" "$(resolve_release_version "$_upstream_ver")"
 
     chmod +x "$SCRIPT_DIR/start.sh"
 
