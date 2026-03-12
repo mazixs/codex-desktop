@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 # shellcheck source=./ci-lib.sh
+# shellcheck disable=SC1091
 source "$SCRIPT_DIR/ci-lib.sh"
 SOURCE_ARCHIVE=""
 METADATA_FILE=""

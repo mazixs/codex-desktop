@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 # shellcheck source=./ci-lib.sh
+# shellcheck disable=SC1091
 source "$SCRIPT_DIR/ci-lib.sh"
 OUTPUT_PATH=""
 REF=""
@@ -116,7 +117,7 @@ main() {
     parse_args "$@"
 
     if [ -z "$REF" ]; then
-        printf '--ref is required\n' >&2
+        printf -- '--ref is required\n' >&2
         usage >&2
         exit 1
     fi
@@ -177,18 +178,18 @@ main() {
         printf 'Prebuilt native Linux release built from the upstream Codex Desktop DMG, patched for Linux, and shipped with bundled Electron.\n\n'
         printf '## Release Assets\n\n'
         if [ -n "$arch_asset_name" ]; then
-            printf -- '- Arch Linux installer: `%s`\n' "$arch_asset_name"
+            printf -- "- Arch Linux installer: \`%s\`\n" "$arch_asset_name"
         else
-            printf -- '- Arch Linux installer: `codex-desktop-native-<upstream-version>-archlinux-x86_64.pkg.tar.zst`\n'
+            printf -- "- Arch Linux installer: \`codex-desktop-native-<upstream-version>-archlinux-x86_64.pkg.tar.zst\`\n"
         fi
         if [ -n "$portable_asset_name" ]; then
-            printf -- '- Portable Linux archive: `%s`\n' "$portable_asset_name"
+            printf -- "- Portable Linux archive: \`%s\`\n" "$portable_asset_name"
         else
-            printf -- '- Portable Linux archive: `codex-desktop-native-<upstream-version>-linux-portable-x64.tar.gz`\n'
+            printf -- "- Portable Linux archive: \`codex-desktop-native-<upstream-version>-linux-portable-x64.tar.gz\`\n"
         fi
         printf '\n## Migration\n\n'
-        printf -- '- Arch package name has changed from `codex-desktop-bin` to `codex-desktop-native`.\n'
-        printf -- '- Launcher/runtime desktop id remains `codex-desktop`; the shell command `codex` remains owned by `codex-cli`.\n'
+        printf -- "- Arch package name has changed from \`codex-desktop-bin\` to \`codex-desktop-native\`.\n"
+        printf -- "- Launcher/runtime desktop id remains \`codex-desktop\`; the shell command \`codex\` remains owned by \`codex-cli\`.\n"
         printf '## Scope\n\n'
         if [ -n "$previous_tag" ]; then
             printf -- "- Previous tag: \`%s\`\n" "$previous_tag"
