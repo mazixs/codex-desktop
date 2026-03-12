@@ -442,6 +442,31 @@ with open(path, "w", encoding="utf-8") as handle:
 PY
 }
 
+replace_first_available() {
+    local target_file="$1"
+    local required="$2"
+    shift 2
+
+    while [ "$#" -ge 2 ]; do
+        local search_text="$1"
+        local replacement_text="$2"
+        shift 2
+
+        if grep -Fq "$search_text" "$target_file"; then
+            replace_literal "$target_file" "$search_text" "$replacement_text" "$required"
+            return 0
+        fi
+    done
+
+    if [ "$required" -eq 1 ]; then
+        err "Expected patch pattern not found in $target_file"
+        exit 1
+    fi
+
+    warn "No compatible patch pattern found in $(basename "$target_file"), skipped optional patch"
+    return 0
+}
+
 patch_main_js() {
     local main_js=""
     local old_text=""
@@ -460,13 +485,19 @@ patch_main_js() {
     replace_literal "$main_js" 'require("electron-squirrel-startup")' 'false'
     # shellcheck disable=SC2016
     replace_literal "$main_js" 'require(`electron-squirrel-startup`)' 'false'
-    replace_literal "$main_js" 'transparent:!0' 'transparent:!1' 1
-    replace_literal "$main_js" 'transparent:true' 'transparent:false'
+    replace_first_available "$main_js" 0 \
+        'transparent:!0' 'transparent:!1' \
+        'transparent:true' 'transparent:false'
     # shellcheck disable=SC2016
-    replace_literal "$main_js" 'vibrancy:`menu`' 'vibrancy:null' 1
+    replace_first_available "$main_js" 0 \
+        'vibrancy:`menu`' 'vibrancy:null'
     # shellcheck disable=SC2016
-    replace_literal "$main_js" 'visualEffectState:`active`' 'visualEffectState:null'
-    replace_literal "$main_js" 'backgroundColor:Z7,backgroundMaterial:null' 'backgroundColor:r?ure:dre,backgroundMaterial:null' 1
+    replace_first_available "$main_js" 0 \
+        'visualEffectState:`active`' 'visualEffectState:null'
+    # shellcheck disable=SC2016
+    replace_first_available "$main_js" 0 \
+        'backgroundMaterial:`mica`' 'backgroundMaterial:null' \
+        'backgroundColor:Z7,backgroundMaterial:null' 'backgroundColor:r?ure:dre,backgroundMaterial:null'
 
     # shellcheck disable=SC2016
     old_text='function l7(e){let t=H(e),n=m.app.getAppPath();if(m.app.isPackaged)return t.join(n,`skills`);let r=t.join(n,`assets`,`skills`);if((0,f.existsSync)(r))return r;let i=t.join(n,`..`,`assets`,`skills`);return(0,f.existsSync)(i)?i:null}'
