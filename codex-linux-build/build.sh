@@ -222,12 +222,64 @@ copy_required_path() {
     cp -a "$source_path" "$destination_dir/"
 }
 
+copy_required_dir_contents() {
+    local source_dir="$1"
+    local destination_dir="$2"
+
+    if [ ! -d "$source_dir" ]; then
+        err "Required directory missing: $source_dir"
+        exit 1
+    fi
+
+    mkdir -p "$destination_dir"
+    cp -a "$source_dir/." "$destination_dir/"
+}
+
+resolve_main_entry_path() {
+    local package_json_path="$1"
+    local base_dir="$2"
+    local main_entry=""
+
+    if [ ! -f "$package_json_path" ]; then
+        err "package.json not found at $package_json_path"
+        exit 1
+    fi
+
+    main_entry="$(node -e 'const manifest=require(process.argv[1]); if (!manifest.main) { process.exit(1); } process.stdout.write(manifest.main);' "$package_json_path" 2>/dev/null || true)"
+    if [ -z "$main_entry" ]; then
+        err "Unable to resolve Electron main entry from $package_json_path"
+        exit 1
+    fi
+
+    printf '%s/%s\n' "$base_dir" "$main_entry"
+}
+
+ensure_main_entry_exists() {
+    local package_json_path="$1"
+    local base_dir="$2"
+    local main_entry_path=""
+    local discovered_main_js=""
+
+    main_entry_path="$(resolve_main_entry_path "$package_json_path" "$base_dir")"
+    if [ -f "$main_entry_path" ]; then
+        return 0
+    fi
+
+    discovered_main_js="$(find "$base_dir" -maxdepth 4 -type f -name 'main.js' | sort | head -n 5 | tr '\n' ' ' || true)"
+    if [ -n "$discovered_main_js" ]; then
+        err "Electron main entry not found at $main_entry_path. Discovered main.js candidates: $discovered_main_js"
+    else
+        err "Electron main entry not found at $main_entry_path and no fallback main.js candidates were discovered under $base_dir"
+    fi
+    exit 1
+}
+
 prepare_working_copy() {
     log "Preparing working copy..."
     rm -rf "$BUILD_DIR"
     mkdir -p "$BUILD_DIR"
 
-    copy_required_path "$APP_UNPACKED/.vite" "$BUILD_DIR"
+    copy_required_dir_contents "$APP_UNPACKED/.vite" "$BUILD_DIR/.vite"
     copy_required_path "$APP_UNPACKED/webview" "$BUILD_DIR"
     copy_required_path "$APP_UNPACKED/skills" "$BUILD_DIR"
     copy_required_path "$APP_UNPACKED/package.json" "$BUILD_DIR"
@@ -238,6 +290,7 @@ prepare_working_copy() {
     fi
 
     cp "$WEBVIEW_SERVER_TEMPLATE" "$BUILD_DIR/webview-server.js"
+    ensure_main_entry_exists "$BUILD_DIR/package.json" "$BUILD_DIR"
 }
 
 apply_packaged_skill_overrides() {
@@ -390,14 +443,12 @@ PY
 }
 
 patch_main_js() {
-    local main_js="$BUILD_DIR/.vite/build/main.js"
+    local main_js=""
     local old_text=""
     local new_text=""
 
-    if [ ! -f "$main_js" ]; then
-        err "main.js not found at $main_js"
-        exit 1
-    fi
+    main_js="$(resolve_main_entry_path "$BUILD_DIR/package.json" "$BUILD_DIR")"
+    ensure_main_entry_exists "$BUILD_DIR/package.json" "$BUILD_DIR"
 
     log "Patching Electron main process bundle..."
     cp "$main_js" "$main_js.bak"

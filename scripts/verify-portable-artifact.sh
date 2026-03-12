@@ -55,6 +55,7 @@ main() {
     local archive_path=""
     local archive_size=0
     local extract_root=""
+    local main_entry_path=""
     local size=""
     local launch_log=""
     local launch_rc=0
@@ -84,18 +85,20 @@ main() {
 
     require_dir "$extract_root/dist"
     require_file "$extract_root/dist/webview-server.js"
-    require_file "$extract_root/dist/.vite/build/main.js"
     require_file "$extract_root/build-metadata.env"
     require_file "$extract_root/start.sh"
     require_file "$extract_root/node_modules/electron/dist/electron"
     require_file "$extract_root/dist/skills/.curated/playwright/SKILL.md"
+
+    main_entry_path="$(node -e 'const manifest=require(process.argv[1]); if (!manifest.main) process.exit(1); process.stdout.write(process.argv[2] + \"/\" + manifest.main);' "$extract_root/dist/package.json" "$extract_root/dist")"
+    require_file "$main_entry_path"
 
     for size in 16 24 32 48 64 128 256 512; do
         require_file "$ARTIFACTS_DIR/icons/hicolor/${size}x${size}/apps/codex-desktop.png"
         require_file "$extract_root/icons/hicolor/${size}x${size}/apps/codex-desktop.png"
     done
 
-    node --check "$extract_root/dist/.vite/build/main.js"
+    node --check "$main_entry_path"
 
     mkdir -p "$WORK_DIR/home"
     launch_log="$WORK_DIR/portable-launch.log"
