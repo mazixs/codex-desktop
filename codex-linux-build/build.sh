@@ -495,6 +495,19 @@ patch_main_js() {
     cp "$main_bundle" "$main_bundle.bak"
     cp "$deeplinks_bundle" "$deeplinks_bundle.bak"
 
+    # --- Disable macOS/Windows-specific window appearance properties ---
+    # These cause broken rendering on Linux (transparent windows, missing backgrounds)
+    # shellcheck disable=SC2016
+    replace_literal "$main_bundle" 'transparent:!0' 'transparent:!1'
+    # shellcheck disable=SC2016
+    replace_literal "$main_bundle" 'vibrancy:`menu`' 'vibrancy:null'
+    # shellcheck disable=SC2016
+    replace_literal "$main_bundle" 'visualEffectState:`active`' 'visualEffectState:null'
+    # shellcheck disable=SC2016
+    replace_literal "$main_bundle" 'backgroundMaterial:`mica`' 'backgroundMaterial:null'
+    # shellcheck disable=SC2016
+    replace_literal "$main_bundle" 'backgroundMaterial:`none`' 'backgroundMaterial:null'
+
     # --- Skills path function (yc) in main bundle ---
     # Makes the skills directory discoverable with existence checks and fallback paths
     # shellcheck disable=SC2016
