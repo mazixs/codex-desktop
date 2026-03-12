@@ -90,7 +90,7 @@ main() {
     require_file "$extract_root/node_modules/electron/dist/electron"
     require_file "$extract_root/dist/skills/.curated/playwright/SKILL.md"
 
-    main_entry_path="$(node -e 'const manifest=require(process.argv[1]); if (!manifest.main) process.exit(1); process.stdout.write(process.argv[2] + \"/\" + manifest.main);' "$extract_root/dist/package.json" "$extract_root/dist")"
+    main_entry_path="$(node -e 'const manifest=require(process.argv[1]); if (!manifest.main) process.exit(1); process.stdout.write(process.argv[2] + "/" + manifest.main);' "$extract_root/dist/package.json" "$extract_root/dist")"
     require_file "$main_entry_path"
 
     for size in 16 24 32 48 64 128 256 512; do
