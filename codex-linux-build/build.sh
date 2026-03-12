@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 # shellcheck source=../scripts/ci-lib.sh
+# shellcheck disable=SC1091
 source "$PROJECT_ROOT/scripts/ci-lib.sh"
 EXTRACTED_DIR="$PROJECT_ROOT/codex_extracted"
 APP_UNPACKED="$EXTRACTED_DIR/app_unpacked"
