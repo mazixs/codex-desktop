@@ -31,8 +31,19 @@ Minified JavaScript requires exact structural `sed` replacements:
 * **Window Dimensions:** Removed constraints preventing proper resizing of frameless windows.
 
 ## 6. Resolving Linux Composition (Transparency Fix)
-* **The Bug:** macOS leverages `vibrancy` to blur backgrounds via the Compositor. Porting `transparent: true` to Linux (especially Wayland) without a compatible compositing backend results in "invisible" application windows.
-* **The Fix:**
-  1. Scrubbed `transparent:!0` to `transparent:!1` (false) and `vibrancy:` to `null`.
-  2. Overriden Electron's minified background hex (`Z7` = `#00000000`) with dynamic theme parameters (`ure` = `#000000`, `dre` = `#f9f9f9`), forcing solid, opaque rendering.
-  3. Wrapped the final execution in `start.sh` with GPU composition flags (`--disable-gpu-compositing`) and Wayland Ozone (`--enable-features=UseOzonePlatform --ozone-platform=wayland`).
+
+* **The Bug:** macOS uses `vibrancy` and `backgroundMaterial` for frosted glass window effects. The default `backgroundColor` is set to `#00000000` (fully transparent) in the minified variable `Hf`, which is invisible behind vibrancy on macOS but renders as a completely transparent window on Linux.
+
+* **The Fix (6 patches in main bundle):**
+  1. `Hf=\`#00000000\`` → `Hf=\`#1e1e1e\`` — replace transparent background with opaque dark color. `Hf` is the default `backgroundColor` for all `BrowserWindow` instances. Related constants: `Uf=\`#000000\`` (dark theme), `Wf=\`#f9f9f9\`` (light theme).
+  2. `transparent:!0` → `transparent:!1` — disable transparent frameless windows (2 hotkey overlay windows).
+  3. `vibrancy:\`menu\`` → `vibrancy:null` — neutralize macOS vibrancy (3 window types: primary, secondary, HUD).
+  4. `visualEffectState:\`active\`` → `visualEffectState:null` — neutralize macOS visual effect (HUD window).
+  5. `backgroundMaterial:\`mica\`` → `backgroundMaterial:null` — neutralize Windows Mica acrylic.
+  6. `backgroundMaterial:\`none\`` → `backgroundMaterial:null` — neutralize Windows opaque background material.
+
+* **Key functions patched:**
+  - `ap({platform, appearance, opaqueWindowsEnabled, prefersDarkColors})` — returns `{backgroundColor, backgroundMaterial}` per window type. After patching, always returns `{backgroundColor: '#1e1e1e', backgroundMaterial: null}` on Linux.
+  - `op({appearance, opaqueWindowsEnabled, platform})` — returns window chrome options (`vibrancy`, `transparent`, `titleBarStyle`). After patching, all macOS/Windows-specific properties are nullified.
+
+* **Launch flags:** `start.sh` injects `--disable-gpu-compositing` and Wayland Ozone platform flags when appropriate.
