@@ -3,6 +3,8 @@ codex_extracted/
 dist/
 artifacts/
 native-rebuild/
+codex-desktop-*-linux-x64/
+codex-desktop-native-*-linux-portable-*/
 
 # Node modules
 node_modules/
