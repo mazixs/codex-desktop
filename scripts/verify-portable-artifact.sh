@@ -100,6 +100,13 @@ main() {
 
     node --check "$main_entry_path"
 
+    # Also syntax-check the hashed bundles that get patched by build.sh
+    for bundle in "$extract_root"/dist/.vite/build/main-*.js "$extract_root"/dist/.vite/build/deeplinks-*.js; do
+        if [ -f "$bundle" ]; then
+            node --check "$bundle"
+        fi
+    done
+
     mkdir -p "$WORK_DIR/home"
     launch_log="$WORK_DIR/portable-launch.log"
     HOME="$WORK_DIR/home" timeout 25s xvfb-run -a "$extract_root/start.sh" >"$launch_log" 2>&1 || launch_rc=$?

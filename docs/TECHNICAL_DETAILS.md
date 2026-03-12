@@ -7,7 +7,7 @@ This document records the exact reverse-engineering steps and workarounds implem
 * Explored `/Contents/Resources/app.asar` and unpacked it using `npx asar extract`.
 * Identified `package.json` configurations.
 * Confirmed via `file` command that all pre-compiled native `.node` modules and CLI binaries inside the bundle were compiled strictly for macOS `Mach-O arm64` (Apple Silicon) or `x86_64`.
-* Found that the UI was bundled using Vite, minified into `dist/.vite/build/main.js`.
+* Found that the UI was bundled using Vite, with entry point at `.vite/build/bootstrap.js` and hashed bundles (`main-*.js`, `deeplinks-*.js`).
 
 ## 2. Dealing with Native Modules
 Native Node.js extensions specific to the macOS build fail to load under Linux's dynamic linker (glibc).

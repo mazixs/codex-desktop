@@ -95,7 +95,7 @@ main() {
     assert_package_entry "$listing_file" "usr/share/pixmaps/codex-desktop.png"
     assert_package_entry "$listing_file" "usr/share/icons/hicolor/256x256/apps/codex-desktop.png"
     assert_package_entry "$listing_file" "opt/codex-desktop/node_modules/electron/dist/electron"
-    assert_package_entry "$listing_file" "opt/codex-desktop/dist/.vite/build/main.js"
+    assert_package_entry "$listing_file" "opt/codex-desktop/dist/.vite/build/bootstrap.js"
 
     pacman -U --noconfirm "$PACKAGE_FILE"
     run_smoke_test
