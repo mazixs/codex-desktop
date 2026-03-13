@@ -38,7 +38,22 @@ macOS relies on native compositor features (`vibrancy`, `backgroundMaterial`) fo
 
 The `ap()` function in the main bundle returns `{backgroundColor, backgroundMaterial}` per window type. The `op()` function returns platform-specific window chrome options (`vibrancy`, `transparent`, `titleBarStyle`, etc.). Both are patched to produce Linux-safe values.
 
-### B. Skills Path Resolution (main bundle)
+### B. File Manager Target for Linux (main bundle)
+
+The upstream `fileManager` open target (used by the "Open folder" button in Skills and elsewhere) only defines `darwin` and `win32` platform entries. On Linux the target is never registered, so clicking "Open folder" silently fails.
+
+The patch adds a `linux` entry to the `fileManager` target definition (`Xa`):
+
+| Property | Value | Purpose |
+|----------|-------|---------|
+| `label` | `File Manager` | Display name in the UI |
+| `detect` | `B('xdg-open')` | Uses the bundled `which.sync` wrapper to locate `xdg-open` |
+| `args` | `e => [e]` | Pass path directly as argument |
+| `open` | Custom async handler | Uses `electron.shell.openPath()` after resolving file paths to their parent directory |
+
+If the path points to a file, the handler navigates to its parent directory via `path.dirname()`. This mirrors the macOS behavior of `open -R` (reveal in Finder) and the Windows behavior of `shell.showItemInFolder()`.
+
+### C. Skills Path Resolution (main bundle)
 
 The `yc()` function resolves the skills directory. The upstream version short-circuits to `app.getAppPath()/skills` when `isPackaged` is true, skipping existence checks. The patch adds fallback paths with `existsSync` checks:
 
@@ -46,7 +61,7 @@ The `yc()` function resolves the skills directory. The upstream version short-ci
 app/skills → app/assets/skills → app/../skills → app/../assets/skills
 ```
 
-### C. Skills Loader & Resolver (deeplinks bundle)
+### D. Skills Loader & Resolver (deeplinks bundle)
 
 Four functions in the deeplinks bundle are patched to support bundled skill overrides:
 
@@ -55,7 +70,7 @@ Four functions in the deeplinks bundle are patched to support bundled skill over
 * **`Pk` (individual skill loader)** — adds `sourceTag` propagation, icon normalization via `normalizeSkillIconUrl` (converts local file paths to `data:` URIs).
 * **`tA` (skill resolver)** — reverses priority to check bundled skills before remote, enabling offline skill overrides.
 
-### D. Launch Script Flags
+### E. Launch Script Flags
 
 The `start.sh` wrapper injects GPU composition flags (`--disable-gpu-compositing`) and Wayland/Ozone flags when appropriate.
 

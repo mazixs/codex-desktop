@@ -47,3 +47,12 @@ Minified JavaScript requires exact structural `sed` replacements:
   - `op({appearance, opaqueWindowsEnabled, platform})` — returns window chrome options (`vibrancy`, `transparent`, `titleBarStyle`). After patching, all macOS/Windows-specific properties are nullified.
 
 * **Launch flags:** `start.sh` injects `--disable-gpu-compositing` and Wayland Ozone platform flags when appropriate.
+
+## 7. File Manager Integration (Open Folder in Skills)
+
+* **The Bug:** The upstream `fileManager` open target (`Xa`) only defines handlers for `darwin` (macOS `open -R`) and `win32` (Windows `explorer.exe` / `shell.showItemInFolder`). On Linux, the target has no platform entry, so it is excluded from the available targets list when `ls(process.platform)` filters by platform. Clicking "Open folder" in Skills silently fails because the `open-file` IPC handler cannot find a registered `fileManager` target.
+
+* **The Fix:** A build-time patch adds a `linux` entry to the `fileManager` target:
+  - **Detection:** Uses `B('xdg-open')` — the bundled `which.sync` wrapper — to locate `xdg-open` on the system.
+  - **Open handler:** Uses Electron's `shell.openPath()` API. If the path points to a file, it resolves to the parent directory via `path.dirname()` before opening, matching the macOS/Windows "reveal in folder" behavior.
+  - The patch is non-required (`replace_literal` without `required=1`), so if upstream changes the `Xa` definition, the build continues with a warning.

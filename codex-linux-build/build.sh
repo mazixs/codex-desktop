@@ -514,6 +514,17 @@ patch_main_js() {
     # shellcheck disable=SC2016
     replace_literal "$main_bundle" 'backgroundMaterial:`none`' 'backgroundMaterial:null'
 
+    # --- Add Linux file manager support ---
+    # The upstream fileManager target only defines darwin and win32 platforms.
+    # On Linux the "Open folder" button in Skills silently fails because
+    # there is no linux entry, so the target is never registered.
+    # Add linux support using xdg-open.
+    # shellcheck disable=SC2016
+    old_text='const Xa=ea({id:`fileManager`,label:`Finder`,icon:`apps/finder.png`,kind:`fileManager`,darwin:{detect:()=>`open`,args:e=>pa(e)},win32:{label:`File Explorer`,icon:`apps/file-explorer.png`,detect:Za,args:e=>pa(e),open:async({path:e})=>Qa(e)}})'
+    # shellcheck disable=SC2016
+    new_text='const Xa=ea({id:`fileManager`,label:`Finder`,icon:`apps/finder.png`,kind:`fileManager`,darwin:{detect:()=>`open`,args:e=>pa(e)},win32:{label:`File Explorer`,icon:`apps/file-explorer.png`,detect:Za,args:e=>pa(e),open:async({path:e})=>Qa(e)},linux:{label:`File Manager`,detect:()=>B(`xdg-open`),args:e=>[e],open:async({path:e})=>{let n=e;try{(0,a.statSync)(n).isFile()&&(n=(0,r.dirname)(n))}catch{}let i=await t.shell.openPath(n);if(i)throw Error(i)}}})'
+    replace_literal "$main_bundle" "$old_text" "$new_text"
+
     # --- Skills path function (yc) in main bundle ---
     # Makes the skills directory discoverable with existence checks and fallback paths
     # shellcheck disable=SC2016
