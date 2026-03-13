@@ -469,7 +469,7 @@ replace_first_available() {
 
 patch_main_js() {
     local main_bundle=""
-    local deeplinks_bundle=""
+    local secondary_bundle=""
     local old_text=""
     local new_text=""
 
@@ -482,90 +482,167 @@ patch_main_js() {
         exit 1
     fi
 
-    # Find the hashed deeplinks bundle (deeplinks-*.js)
-    deeplinks_bundle="$(find "$BUILD_DIR/.vite/build" -maxdepth 1 -name 'deeplinks-*.js' ! -name '*.map' -type f | head -n 1)"
-    if [ -z "$deeplinks_bundle" ] || [ ! -f "$deeplinks_bundle" ]; then
-        err "Deeplinks bundle not found in $BUILD_DIR/.vite/build/"
-        exit 1
+    # Find the secondary bundle: deeplinks-*.js (older upstream) or bootstrap-*.js (newer upstream)
+    secondary_bundle="$(find "$BUILD_DIR/.vite/build" -maxdepth 1 \( -name 'deeplinks-*.js' -o -name 'bootstrap-*.js' \) ! -name '*.map' -type f | head -n 1)"
+    if [ -z "$secondary_bundle" ] || [ ! -f "$secondary_bundle" ]; then
+        warn "Secondary bundle (deeplinks/bootstrap) not found; skills patches will target main bundle"
+        secondary_bundle=""
     fi
 
     log "Patching Electron main process bundles..."
     log "  main bundle: $(basename "$main_bundle")"
-    log "  deeplinks bundle: $(basename "$deeplinks_bundle")"
+    [ -n "$secondary_bundle" ] && log "  secondary bundle: $(basename "$secondary_bundle")"
     cp "$main_bundle" "$main_bundle.bak"
-    cp "$deeplinks_bundle" "$deeplinks_bundle.bak"
+    [ -n "$secondary_bundle" ] && cp "$secondary_bundle" "$secondary_bundle.bak"
 
+    # =====================================================================
     # --- Disable macOS/Windows-specific window appearance properties ---
     # These cause broken rendering on Linux (transparent windows, missing backgrounds)
+    # =====================================================================
 
-    # Hf=#00000000 is a fully-transparent background used by macOS vibrancy;
-    # on Linux without vibrancy the window becomes invisible. Replace with opaque dark bg.
+    # Fully-transparent background used by macOS vibrancy → opaque dark bg.
+    # Variable name changes across upstream versions (Hf, So, etc.) so try both.
     # shellcheck disable=SC2016
-    replace_literal "$main_bundle" 'Hf=`#00000000`' 'Hf=`#1e1e1e`'
+    replace_first_available "$main_bundle" 0 \
+        'So="#00000000"' 'So="#1e1e1e"' \
+        'Hf=`#00000000`' 'Hf=`#1e1e1e`'
 
-    # shellcheck disable=SC2016
     replace_literal "$main_bundle" 'transparent:!0' 'transparent:!1'
-    # shellcheck disable=SC2016
-    replace_literal "$main_bundle" 'vibrancy:`menu`' 'vibrancy:null'
-    # shellcheck disable=SC2016
-    replace_literal "$main_bundle" 'visualEffectState:`active`' 'visualEffectState:null'
-    # shellcheck disable=SC2016
-    replace_literal "$main_bundle" 'backgroundMaterial:`mica`' 'backgroundMaterial:null'
-    # shellcheck disable=SC2016
-    replace_literal "$main_bundle" 'backgroundMaterial:`none`' 'backgroundMaterial:null'
 
+    # Vibrancy / visualEffectState / backgroundMaterial — try both quote styles
+    replace_first_available "$main_bundle" 0 \
+        'vibrancy:"menu"'  'vibrancy:null' \
+        'vibrancy:`menu`'  'vibrancy:null'
+
+    replace_first_available "$main_bundle" 0 \
+        'visualEffectState:"active"'  'visualEffectState:null' \
+        'visualEffectState:`active`'  'visualEffectState:null'
+
+    replace_first_available "$main_bundle" 0 \
+        'backgroundMaterial:"mica"'  'backgroundMaterial:null' \
+        'backgroundMaterial:`mica`'  'backgroundMaterial:null'
+
+    replace_first_available "$main_bundle" 0 \
+        'backgroundMaterial:"none"'  'backgroundMaterial:null' \
+        'backgroundMaterial:`none`'  'backgroundMaterial:null'
+
+    # =====================================================================
     # --- Add Linux file manager support ---
     # The upstream fileManager target only defines darwin and win32 platforms.
     # On Linux the "Open folder" button in Skills silently fails because
     # there is no linux entry, so the target is never registered.
-    # Add linux support using xdg-open.
-    # shellcheck disable=SC2016
-    old_text='const Xa=ea({id:`fileManager`,label:`Finder`,icon:`apps/finder.png`,kind:`fileManager`,darwin:{detect:()=>`open`,args:e=>pa(e)},win32:{label:`File Explorer`,icon:`apps/file-explorer.png`,detect:Za,args:e=>pa(e),open:async({path:e})=>Qa(e)}})'
-    # shellcheck disable=SC2016
-    new_text='const Xa=ea({id:`fileManager`,label:`Finder`,icon:`apps/finder.png`,kind:`fileManager`,darwin:{detect:()=>`open`,args:e=>pa(e)},win32:{label:`File Explorer`,icon:`apps/file-explorer.png`,detect:Za,args:e=>pa(e),open:async({path:e})=>Qa(e)},linux:{label:`File Manager`,detect:()=>B(`xdg-open`),args:e=>[e],open:async({path:e})=>{let n=e;try{(0,a.statSync)(n).isFile()&&(n=(0,r.dirname)(n))}catch{}let i=await t.shell.openPath(n);if(i)throw Error(i)}}})'
-    replace_literal "$main_bundle" "$old_text" "$new_text"
+    # Add linux support using xdg-open via Electron shell.openPath().
+    # Variable/function names change across upstream versions, so try both.
+    # =====================================================================
 
-    # --- Skills path function (yc) in main bundle ---
+    # New upstream (double-quoted, l_/Ze/Qc/u_/d_/H)
+    old_text='const l_=Ze({id:"fileManager",label:"Finder",icon:"apps/finder.png",kind:"fileManager",darwin:{detect:()=>"open",args:r=>Qc(r)},win32:{label:"File Explorer",icon:"apps/file-explorer.png",detect:u_,args:r=>Qc(r),open:async({path:r})=>d_(r)}})'
+    new_text='const l_=Ze({id:"fileManager",label:"Finder",icon:"apps/finder.png",kind:"fileManager",darwin:{detect:()=>"open",args:r=>Qc(r)},win32:{label:"File Explorer",icon:"apps/file-explorer.png",detect:u_,args:r=>Qc(r),open:async({path:r})=>d_(r)},linux:{label:"File Manager",detect:()=>H("xdg-open"),args:r=>[r],open:async({path:r})=>{let e=r;try{k.statSync(e).isFile()&&(e=q.dirname(e))}catch{}const t=await x.shell.openPath(e);if(t)throw Error(t)}}})'
+    if grep -Fq "$old_text" "$main_bundle"; then
+        replace_literal "$main_bundle" "$old_text" "$new_text"
+    else
+        # Old upstream (backtick-quoted, Xa/ea/pa/Za/Qa/B)
+        # shellcheck disable=SC2016
+        old_text='const Xa=ea({id:`fileManager`,label:`Finder`,icon:`apps/finder.png`,kind:`fileManager`,darwin:{detect:()=>`open`,args:e=>pa(e)},win32:{label:`File Explorer`,icon:`apps/file-explorer.png`,detect:Za,args:e=>pa(e),open:async({path:e})=>Qa(e)}})'
+        # shellcheck disable=SC2016
+        new_text='const Xa=ea({id:`fileManager`,label:`Finder`,icon:`apps/finder.png`,kind:`fileManager`,darwin:{detect:()=>`open`,args:e=>pa(e)},win32:{label:`File Explorer`,icon:`apps/file-explorer.png`,detect:Za,args:e=>pa(e),open:async({path:e})=>Qa(e)},linux:{label:`File Manager`,detect:()=>B(`xdg-open`),args:e=>[e],open:async({path:e})=>{let n=e;try{(0,a.statSync)(n).isFile()&&(n=(0,r.dirname)(n))}catch{}let i=await t.shell.openPath(n);if(i)throw Error(i)}}})'
+        replace_literal "$main_bundle" "$old_text" "$new_text"
+    fi
+
+    # =====================================================================
+    # --- Skills path function (JE/yc) in main bundle ---
     # Makes the skills directory discoverable with existence checks and fallback paths
-    # shellcheck disable=SC2016
-    old_text='function yc(n){let r=e.qt(n),i=t.app.getAppPath();if(t.app.isPackaged)return r.join(i,`skills`);let o=r.join(i,`assets`,`skills`);if((0,a.existsSync)(o))return o;let s=r.join(i,`..`,`assets`,`skills`);return(0,a.existsSync)(s)?s:null}'
-    # shellcheck disable=SC2016
-    new_text='function yc(n){let r=e.qt(n),i=t.app.getAppPath(),o=r.join(i,`skills`);if((0,a.existsSync)(o))return o;if(t.app.isPackaged)return o;let s=r.join(i,`assets`,`skills`);if((0,a.existsSync)(s))return s;let c=r.join(i,`..`,`skills`);if((0,a.existsSync)(c))return c;let l=r.join(i,`..`,`assets`,`skills`);return(0,a.existsSync)(l)?l:null}'
-    replace_literal "$main_bundle" "$old_text" "$new_text" 1
+    # =====================================================================
 
-    # --- Patches in deeplinks bundle ---
+    # New upstream (JE, double-quoted, const/k.existsSync)
+    old_text='function JE(r){const e=a.platformPath(r),t=x.app.getAppPath();if(x.app.isPackaged)return e.join(t,"skills");const i=e.join(t,"assets","skills");if(k.existsSync(i))return i;const n=e.join(t,"..","assets","skills");return k.existsSync(n)?n:null}'
+    new_text='function JE(r){const e=a.platformPath(r),t=x.app.getAppPath(),i=e.join(t,"skills");if(k.existsSync(i))return i;if(x.app.isPackaged)return i;const n=e.join(t,"assets","skills");if(k.existsSync(n))return n;const o=e.join(t,"..","skills");if(k.existsSync(o))return o;const s=e.join(t,"..","assets","skills");return k.existsSync(s)?s:null}'
+    if grep -Fq "$old_text" "$main_bundle"; then
+        replace_literal "$main_bundle" "$old_text" "$new_text" 1
+    else
+        # Old upstream (yc, backtick-quoted, let/a.existsSync)
+        # shellcheck disable=SC2016
+        old_text='function yc(n){let r=e.qt(n),i=t.app.getAppPath();if(t.app.isPackaged)return r.join(i,`skills`);let o=r.join(i,`assets`,`skills`);if((0,a.existsSync)(o))return o;let s=r.join(i,`..`,`assets`,`skills`);return(0,a.existsSync)(s)?s:null}'
+        # shellcheck disable=SC2016
+        new_text='function yc(n){let r=e.qt(n),i=t.app.getAppPath(),o=r.join(i,`skills`);if((0,a.existsSync)(o))return o;if(t.app.isPackaged)return o;let s=r.join(i,`assets`,`skills`);if((0,a.existsSync)(s))return s;let c=r.join(i,`..`,`skills`);if((0,a.existsSync)(c))return c;let l=r.join(i,`..`,`assets`,`skills`);return(0,a.existsSync)(l)?l:null}'
+        replace_literal "$main_bundle" "$old_text" "$new_text" 1
+    fi
 
-    # Mk: recommended skills loader — add bundled skill override support
-    # shellcheck disable=SC2016
-    old_text='async function Mk({refresh:e=!1,preferWsl:t=!1,bundledRepoRoot:n=null,hostConfig:r}){let i=jp(r)?r.terminal_command.join(` `):void 0,a=jp(r)?await __(r):g_({preferWsl:t,hostConfig:r}),o=b_(r),s=o.join(a,`vendor_imports`),c=o.join(s,`skills`),l=Qk(o),u=$k(o),d=u.map(e=>o.join(c,e)),f=o.join(c,l),p=o.join(s,`skills-curated-cache.json`),m=i||!n?null:o.resolve(n),h=m?u.map(e=>o.join(m,e)):null,g=m?o.join(m,l):null,_=await Xk(p,r),v=e||!_||Jk(_),y=await Yk(o.join(c,`.git`),r),b=await Yk(f,r),x=g?await Yk(g,r):!1;try{if(!e&&!y&&!b&&x){let e=await Nk({repoRoot:m??c,recommendedRoots:h??d,path:o,hostConfig:r}),t=Date.now();return await Zk(p,{fetchedAt:t,skills:e},r),{skills:e,fetchedAt:t,source:`bundled`,repoRoot:m??null,error:null}}let t=!1;v&&(y||!b)&&(await Uk({repoRoot:c,vendorRoot:s,hostConfig:r}),await Wk(c,r),await Gk(c,u,r),t=!0);let n=await Nk({repoRoot:c,recommendedRoots:d,path:o,hostConfig:r}),i=t?Date.now():_?.fetchedAt??Date.now();return await Zk(p,{fetchedAt:i,skills:n},r),{skills:n,fetchedAt:i,source:t?`git`:`cache`,repoRoot:c,error:null}}catch(e){let t=e instanceof Error?e.message:String(e),n=!b&&!y&&x&&m?m:c;return Tk().warning(`Failed to load recommended skills`,{safe:{},sensitive:{error:e}}),_?{skills:_.skills,fetchedAt:_.fetchedAt,source:`cache`,repoRoot:n,error:t}:{skills:[],fetchedAt:null,source:`cache`,repoRoot:n,error:t}}}'
-    # shellcheck disable=SC2016
-    new_text='async function Mk({refresh:e=!1,preferWsl:t=!1,bundledRepoRoot:n=null,hostConfig:r}){let i=jp(r)?r.terminal_command.join(` `):void 0,a=jp(r)?await __(r):g_({preferWsl:t,hostConfig:r}),o=b_(r),s=o.join(a,`vendor_imports`),c=o.join(s,`skills`),l=Qk(o),u=$k(o),d=u.map(e=>o.join(c,e)),f=o.join(c,l),p=o.join(s,`skills-curated-cache.json`),m=i||!n?null:o.resolve(n),h=m?u.map(e=>o.join(m,e)):[],g=m?o.join(m,l):null,_=await Xk(p,r),v=e||!_||Jk(_),y=await Yk(o.join(c,`.git`),r),b=await Yk(f,r),x=g?await Yk(g,r):!1,S=async()=>x&&m?Nk({repoRoot:m,recommendedRoots:h,path:o,hostConfig:r,sourceTag:`bundled-override`}):[];try{if(!e&&!y&&!b&&x){let e=logBundledSkillOverrides(await S(),`bundled`),t=Date.now();return await Zk(p,{fetchedAt:t,skills:e},r),{skills:e,fetchedAt:t,source:`bundled`,repoRoot:m??null,error:null}}let t=!1;v&&(y||!b)&&(await Uk({repoRoot:c,vendorRoot:s,hostConfig:r}),await Wk(c,r),await Gk(c,u,r),t=!0);let n=await Nk({repoRoot:c,recommendedRoots:d,path:o,hostConfig:r,sourceTag:t?`git`:`cache`}),i=logBundledSkillOverrides(mergeRecommendedSkillLists(await S(),n),t?`git`:`cache`),a=t?Date.now():_?.fetchedAt??Date.now();return await Zk(p,{fetchedAt:a,skills:i},r),{skills:i,fetchedAt:a,source:t?`git`:`cache`,repoRoot:c,error:null}}catch(e){let t=e instanceof Error?e.message:String(e),n=!b&&!y&&x&&m?m:c,i=await S().catch(()=>[]);return Tk().warning(`Failed to load recommended skills`,{safe:{},sensitive:{error:e}}),_?{skills:logBundledSkillOverrides(mergeRecommendedSkillLists(i,_.skills),`cache`),fetchedAt:_.fetchedAt,source:`cache`,repoRoot:n,error:t}:{skills:i,fetchedAt:null,source:i.length>0?`bundled`:`cache`,repoRoot:n,error:t}}}'
-    replace_literal "$deeplinks_bundle" "$old_text" "$new_text" 1
+    # =====================================================================
+    # --- Skills loader patches ---
+    # In older upstream these live in deeplinks-*.js; in newer upstream
+    # they moved to main-*.js.  Determine the target bundle dynamically.
+    # =====================================================================
 
-    # Nk: skill enumerator — add sourceTag + prepend helper functions
-    # shellcheck disable=SC2016
-    old_text='async function Nk({repoRoot:e,recommendedRoots:t,path:n,hostConfig:r}){let i=new Map,a=await Promise.all(t.map(async t=>Pk({recommendedRoot:t,repoRoot:e,path:n,hostConfig:r})));for(let e of a)for(let t of e)i.has(t.id)||i.set(t.id,t);return Array.from(i.values()).sort((e,t)=>e.name.localeCompare(t.name))}'
-    # shellcheck disable=SC2016
-    new_text='function skillIconMimeType(e){switch(e){case `.svg`:return `image/svg+xml`;case `.png`:return `image/png`;case `.jpg`:case `.jpeg`:return `image/jpeg`;case `.webp`:return `image/webp`;default:return null}}async function normalizeSkillIconUrl(e,t,n,r){if(!e)return null;if(/^https?:\/\//i.test(e)||e.startsWith(`data:`))return e;let i=n.isAbsolute(e)?e:n.resolve(t,e),a=skillIconMimeType(n.extname(i).toLowerCase());if(!a)return i;try{let e=await F.readFileBase64(i,r);return`data:${a};base64,${e.toString(`base64`)}`}catch{return i}}function mergeRecommendedSkillLists(e,t){let n=new Map;for(let r of[...e,...t])n.has(r.id)||n.set(r.id,r);return Array.from(n.values()).sort((e,t)=>e.name.localeCompare(t.name))}function logBundledSkillOverrides(e,t){let n=e.filter(e=>e.skillSource===`bundled-override`).map(e=>e.id);return n.length>0&&Tk().info(`Using bundled skill overrides`,{safe:{skillIds:n,baseSource:t},sensitive:{}}),e}async function Nk({repoRoot:e,recommendedRoots:t,path:n,hostConfig:r,sourceTag:i=null}){let a=new Map,o=await Promise.all(t.map(async t=>Pk({recommendedRoot:t,repoRoot:e,path:n,hostConfig:r,sourceTag:i})));for(let e of o)for(let t of e)a.has(t.id)||a.set(t.id,t);return Array.from(a.values()).sort((e,t)=>e.name.localeCompare(t.name))}'
-    replace_literal "$deeplinks_bundle" "$old_text" "$new_text" 1
+    local skills_bundle="$main_bundle"
+    # If the recommended-skills loader signature is in the secondary bundle, patch there
+    if [ -n "$secondary_bundle" ] && grep -Fq 'preferWsl' "$secondary_bundle" && grep -Fq 'bundledRepoRoot' "$secondary_bundle"; then
+        skills_bundle="$secondary_bundle"
+    fi
 
-    # Pk: individual skill loader — add sourceTag, icon normalization
-    # shellcheck disable=SC2016
-    old_text='async function Pk({recommendedRoot:e,repoRoot:t,path:n,hostConfig:r}){if(!await Yk(e,r))return[];let i=await F.readdir(e,r);return(await Promise.all(i.map(async i=>{if(i.startsWith(`.`))return null;let a=n.join(e,i),o=(await F.stat(a,r)).isDirectory(),s=o?n.join(a,`SKILL.md`):a;if(!await Yk(s,r))return null;let c=Lk(await F.readFile(s,r)),l=await zk({path:n,hostConfig:r,skillRoot:a}),u=o?i:n.parse(i).name,d=c.description??c.shortDescription??u,f=await Vk({path:n,hostConfig:r,skillRoot:a,skillId:u,iconSmall:c.iconSmall??l.iconSmall??null,iconLarge:c.iconLarge??l.iconLarge??null,isDirectory:o}),p=o?qk(n,t,a):qk(n,t,s);return{id:u,name:c.name??u,description:d,shortDescription:c.shortDescription??l.shortDescription,iconSmall:f.iconSmall,iconLarge:f.iconLarge,repoPath:p}}))).filter(e=>e!=null)}'
-    # shellcheck disable=SC2016
-    new_text='async function Pk({recommendedRoot:e,repoRoot:t,path:n,hostConfig:r,sourceTag:i=null}){if(!await Yk(e,r))return[];let a=await F.readdir(e,r);return(await Promise.all(a.map(async a=>{if(a.startsWith(`.`))return null;let o=n.join(e,a),s=(await F.stat(o,r)).isDirectory(),c=s?n.join(o,`SKILL.md`):o;if(!await Yk(c,r))return null;let l=Lk(await F.readFile(c,r)),u=await zk({path:n,hostConfig:r,skillRoot:o}),d=s?a:n.parse(a).name,f=l.description??l.shortDescription??d,p=await Vk({path:n,hostConfig:r,skillRoot:o,skillId:d,iconSmall:l.iconSmall??u.iconSmall??null,iconLarge:l.iconLarge??u.iconLarge??null,isDirectory:s}),m=s?qk(n,t,o):qk(n,t,c);return{id:d,name:l.name??d,description:f,shortDescription:l.shortDescription??u.shortDescription,iconSmall:await normalizeSkillIconUrl(p.iconSmall,o,n,r),iconLarge:await normalizeSkillIconUrl(p.iconLarge,o,n,r),repoPath:m,skillSource:i}}))).filter(e=>e!=null)}'
-    replace_literal "$deeplinks_bundle" "$old_text" "$new_text" 1
+    # --- so/Mk: recommended skills loader — add bundled skill override support ---
+    # New upstream (so, double-quoted, a.isRemoteHostConfig, Ms/Gw/Uw)
+    old_text='async function so({refresh:r=!1,preferWsl:e=!1,bundledRepoRoot:t=null,hostConfig:i}){const n=a.isRemoteHostConfig(i)?i.terminal_command.join(" "):void 0,o=a.isRemoteHostConfig(i)?await a.resolveRemoteSshCodexHome(i):a.resolveCodexHome({preferWsl:e}),s=a.platformPath(i),c=s.join(o,"vendor_imports"),l=s.join(c,"skills"),u=ix(s),d=ox(s),p=d.map(E=>s.join(l,E)),h=s.join(l,u),f=s.join(c,"skills-curated-cache.json"),m=n||!t?null:s.resolve(t),g=m?d.map(E=>s.join(m,E)):null,v=m?s.join(m,u):null,b=await rx(f,i),w=r||!b||nx(b),D=await xe(s.join(l,".git"),i),_=await xe(h,i),I=v?await xe(v,i):!1;try{if(!r&&!D&&!_&&I){const $=await Ms({repoRoot:m??l,recommendedRoots:g??p,path:s,hostConfig:i}),O=Date.now();return await Us(f,{fetchedAt:O,skills:$},i),{skills:$,fetchedAt:O,source:"bundled",repoRoot:m??null,error:null}}let E=!1;w&&(D||!_)&&(await Yw({repoRoot:l,vendorRoot:c,hostConfig:i}),await Qw(l,i),await ex(l,d,i),E=!0);const S=await Ms({repoRoot:l,recommendedRoots:p,path:s,hostConfig:i}),P=E?Date.now():b?.fetchedAt??Date.now();return await Us(f,{fetchedAt:P,skills:S},i),{skills:S,fetchedAt:P,source:E?"git":"cache",repoRoot:l,error:null}}catch(E){const S=E instanceof Error?E.message:String(E),P=!_&&!D&&I&&m?m:l;return Uw().warning("Failed to load recommended skills",{safe:{},sensitive:{error:E}}),b?{skills:b.skills,fetchedAt:b.fetchedAt,source:"cache",repoRoot:P,error:S}:{skills:[],fetchedAt:null,source:"cache",repoRoot:P,error:S}}}'
+    new_text='async function so({refresh:r=!1,preferWsl:e=!1,bundledRepoRoot:t=null,hostConfig:i}){const n=a.isRemoteHostConfig(i)?i.terminal_command.join(" "):void 0,o=a.isRemoteHostConfig(i)?await a.resolveRemoteSshCodexHome(i):a.resolveCodexHome({preferWsl:e}),s=a.platformPath(i),c=s.join(o,"vendor_imports"),l=s.join(c,"skills"),u=ix(s),d=ox(s),p=d.map(E=>s.join(l,E)),h=s.join(l,u),f=s.join(c,"skills-curated-cache.json"),m=n||!t?null:s.resolve(t),g=m?d.map(E=>s.join(m,E)):[],v=m?s.join(m,u):null,b=await rx(f,i),w=r||!b||nx(b),D=await xe(s.join(l,".git"),i),_=await xe(h,i),I=v?await xe(v,i):!1,Q=async()=>I&&m?Ms({repoRoot:m,recommendedRoots:g,path:s,hostConfig:i}):[];try{if(!r&&!D&&!_&&I){const $=await Q(),O=Date.now();return await Us(f,{fetchedAt:O,skills:$},i),{skills:$,fetchedAt:O,source:"bundled",repoRoot:m??null,error:null}}let E=!1;w&&(D||!_)&&(await Yw({repoRoot:l,vendorRoot:c,hostConfig:i}),await Qw(l,i),await ex(l,d,i),E=!0);const S=await Ms({repoRoot:l,recommendedRoots:p,path:s,hostConfig:i}),R=await Q().catch(()=>[]),P=mergeRecommendedSkillLists(R,S),F=E?Date.now():b?.fetchedAt??Date.now();return await Us(f,{fetchedAt:F,skills:P},i),{skills:P,fetchedAt:F,source:E?"git":"cache",repoRoot:l,error:null}}catch(E){const S=E instanceof Error?E.message:String(E),P=!_&&!D&&I&&m?m:l,F=await Q().catch(()=>[]);return Uw().warning("Failed to load recommended skills",{safe:{},sensitive:{error:E}}),b?{skills:mergeRecommendedSkillLists(F,b.skills),fetchedAt:b.fetchedAt,source:"cache",repoRoot:P,error:S}:{skills:F,fetchedAt:null,source:F.length>0?"bundled":"cache",repoRoot:P,error:S}}}function mergeRecommendedSkillLists(r,e){const t=new Map;for(const i of[...r,...e])t.has(i.id)||t.set(i.id,i);return Array.from(t.values()).sort((i,n)=>i.name.localeCompare(n.name))}'
+    if ! grep -Fq 'async function so({refresh:' "$skills_bundle"; then
+        # Old upstream (Mk, backtick-quoted) — try deeplinks then main
+        # shellcheck disable=SC2016
+        old_text='async function Mk({refresh:e=!1,preferWsl:t=!1,bundledRepoRoot:n=null,hostConfig:r}){let i=jp(r)?r.terminal_command.join(` `):void 0,a=jp(r)?await __(r):g_({preferWsl:t,hostConfig:r}),o=b_(r),s=o.join(a,`vendor_imports`),c=o.join(s,`skills`),l=Qk(o),u=$k(o),d=u.map(e=>o.join(c,e)),f=o.join(c,l),p=o.join(s,`skills-curated-cache.json`),m=i||!n?null:o.resolve(n),h=m?u.map(e=>o.join(m,e)):null,g=m?o.join(m,l):null,_=await Xk(p,r),v=e||!_||Jk(_),y=await Yk(o.join(c,`.git`),r),b=await Yk(f,r),x=g?await Yk(g,r):!1;try{if(!e&&!y&&!b&&x){let e=await Nk({repoRoot:m??c,recommendedRoots:h??d,path:o,hostConfig:r}),t=Date.now();return await Zk(p,{fetchedAt:t,skills:e},r),{skills:e,fetchedAt:t,source:`bundled`,repoRoot:m??null,error:null}}let t=!1;v&&(y||!b)&&(await Uk({repoRoot:c,vendorRoot:s,hostConfig:r}),await Wk(c,r),await Gk(c,u,r),t=!0);let n=await Nk({repoRoot:c,recommendedRoots:d,path:o,hostConfig:r}),i=t?Date.now():_?.fetchedAt??Date.now();return await Zk(p,{fetchedAt:i,skills:n},r),{skills:n,fetchedAt:i,source:t?`git`:`cache`,repoRoot:c,error:null}}catch(e){let t=e instanceof Error?e.message:String(e),n=!b&&!y&&x&&m?m:c;return Tk().warning(`Failed to load recommended skills`,{safe:{},sensitive:{error:e}}),_?{skills:_.skills,fetchedAt:_.fetchedAt,source:`cache`,repoRoot:n,error:t}:{skills:[],fetchedAt:null,source:`cache`,repoRoot:n,error:t}}}'
+        # shellcheck disable=SC2016
+        new_text='async function Mk({refresh:e=!1,preferWsl:t=!1,bundledRepoRoot:n=null,hostConfig:r}){let i=jp(r)?r.terminal_command.join(` `):void 0,a=jp(r)?await __(r):g_({preferWsl:t,hostConfig:r}),o=b_(r),s=o.join(a,`vendor_imports`),c=o.join(s,`skills`),l=Qk(o),u=$k(o),d=u.map(e=>o.join(c,e)),f=o.join(c,l),p=o.join(s,`skills-curated-cache.json`),m=i||!n?null:o.resolve(n),h=m?u.map(e=>o.join(m,e)):[],g=m?o.join(m,l):null,_=await Xk(p,r),v=e||!_||Jk(_),y=await Yk(o.join(c,`.git`),r),b=await Yk(f,r),x=g?await Yk(g,r):!1,S=async()=>x&&m?Nk({repoRoot:m,recommendedRoots:h,path:o,hostConfig:r,sourceTag:`bundled-override`}):[];try{if(!e&&!y&&!b&&x){let e=logBundledSkillOverrides(await S(),`bundled`),t=Date.now();return await Zk(p,{fetchedAt:t,skills:e},r),{skills:e,fetchedAt:t,source:`bundled`,repoRoot:m??null,error:null}}let t=!1;v&&(y||!b)&&(await Uk({repoRoot:c,vendorRoot:s,hostConfig:r}),await Wk(c,r),await Gk(c,u,r),t=!0);let n=await Nk({repoRoot:c,recommendedRoots:d,path:o,hostConfig:r,sourceTag:t?`git`:`cache`}),i=logBundledSkillOverrides(mergeRecommendedSkillLists(await S(),n),t?`git`:`cache`),a=t?Date.now():_?.fetchedAt??Date.now();return await Zk(p,{fetchedAt:a,skills:i},r),{skills:i,fetchedAt:a,source:t?`git`:`cache`,repoRoot:c,error:null}}catch(e){let t=e instanceof Error?e.message:String(e),n=!b&&!y&&x&&m?m:c,i=await S().catch(()=>[]);return Tk().warning(`Failed to load recommended skills`,{safe:{},sensitive:{error:e}}),_?{skills:logBundledSkillOverrides(mergeRecommendedSkillLists(i,_.skills),`cache`),fetchedAt:_.fetchedAt,source:`cache`,repoRoot:n,error:t}:{skills:i,fetchedAt:null,source:i.length>0?`bundled`:`cache`,repoRoot:n,error:t}}}'
+        replace_literal "$skills_bundle" "$old_text" "$new_text"
+    else
+        replace_literal "$skills_bundle" "$old_text" "$new_text" 1
+    fi
 
-    # tA: skill resolver — prioritize bundled skills over remote
-    # shellcheck disable=SC2016
-    old_text='async function tA({repoRoot:e,bundledRepoRoot:t,repoPath:n,hostConfig:r}){let i=nA(e,n,r);if(await rA(i,r))return i;if(!t)return null;let a=nA(t,n,r);return await rA(a,r)?a:null}'
-    # shellcheck disable=SC2016
-    new_text='async function tA({repoRoot:e,bundledRepoRoot:t,repoPath:n,hostConfig:r}){if(t){let i=nA(t,n,r);if(await rA(i,r))return i}let a=nA(e,n,r);return await rA(a,r)?a:null}'
-    replace_literal "$deeplinks_bundle" "$old_text" "$new_text" 1
+    # --- Ms/Nk: skill enumerator — add sourceTag + prepend helper functions ---
+    # New upstream (Ms/Gw, double-quoted)
+    old_text='async function Ms({repoRoot:r,recommendedRoots:e,path:t,hostConfig:i}){const n=new Map,o=await Promise.all(e.map(async s=>Gw({recommendedRoot:s,repoRoot:r,path:t,hostConfig:i})));for(const s of o)for(const c of s)n.has(c.id)||n.set(c.id,c);return Array.from(n.values()).sort((s,c)=>s.name.localeCompare(c.name))}'
+    new_text='function skillIconMimeType(r){switch(r){case".svg":return"image/svg+xml";case".png":return"image/png";case".jpg":case".jpeg":return"image/jpeg";case".webp":return"image/webp";default:return null}}async function normalizeSkillIconUrl(r,e,t,i){if(!r)return null;if(/^https?:\/\//i.test(r)||r.startsWith("data:"))return r;const n=t.isAbsolute(r)?r:t.resolve(e,r),o=skillIconMimeType(t.extname(n).toLowerCase());if(!o)return n;try{const s=await a.fsUtils.readFile(n,i);return"data:"+o+";base64,"+Buffer.from(s).toString("base64")}catch{return n}}async function Ms({repoRoot:r,recommendedRoots:e,path:t,hostConfig:i}){const n=new Map,o=await Promise.all(e.map(async s=>Gw({recommendedRoot:s,repoRoot:r,path:t,hostConfig:i})));for(const s of o)for(const c of s)n.has(c.id)||n.set(c.id,c);return Array.from(n.values()).sort((s,c)=>s.name.localeCompare(c.name))}'
+    if ! grep -Fq 'async function Ms({repoRoot:r,recommendedRoots:e' "$skills_bundle"; then
+        # Old upstream (Nk/Pk, backtick-quoted)
+        # shellcheck disable=SC2016
+        old_text='async function Nk({repoRoot:e,recommendedRoots:t,path:n,hostConfig:r}){let i=new Map,a=await Promise.all(t.map(async t=>Pk({recommendedRoot:t,repoRoot:e,path:n,hostConfig:r})));for(let e of a)for(let t of e)i.has(t.id)||i.set(t.id,t);return Array.from(i.values()).sort((e,t)=>e.name.localeCompare(t.name))}'
+        # shellcheck disable=SC2016
+        new_text='function skillIconMimeType(e){switch(e){case `.svg`:return `image/svg+xml`;case `.png`:return `image/png`;case `.jpg`:case `.jpeg`:return `image/jpeg`;case `.webp`:return `image/webp`;default:return null}}async function normalizeSkillIconUrl(e,t,n,r){if(!e)return null;if(/^https?:\/\//i.test(e)||e.startsWith(`data:`))return e;let i=n.isAbsolute(e)?e:n.resolve(t,e),a=skillIconMimeType(n.extname(i).toLowerCase());if(!a)return i;try{let e=await F.readFileBase64(i,r);return`data:${a};base64,${e.toString(`base64`)}`}catch{return i}}function mergeRecommendedSkillLists(e,t){let n=new Map;for(let r of[...e,...t])n.has(r.id)||n.set(r.id,r);return Array.from(n.values()).sort((e,t)=>e.name.localeCompare(t.name))}function logBundledSkillOverrides(e,t){let n=e.filter(e=>e.skillSource===`bundled-override`).map(e=>e.id);return n.length>0&&Tk().info(`Using bundled skill overrides`,{safe:{skillIds:n,baseSource:t},sensitive:{}}),e}async function Nk({repoRoot:e,recommendedRoots:t,path:n,hostConfig:r,sourceTag:i=null}){let a=new Map,o=await Promise.all(t.map(async t=>Pk({recommendedRoot:t,repoRoot:e,path:n,hostConfig:r,sourceTag:i})));for(let e of o)for(let t of e)a.has(t.id)||a.set(t.id,t);return Array.from(a.values()).sort((e,t)=>e.name.localeCompare(t.name))}'
+        replace_literal "$skills_bundle" "$old_text" "$new_text"
+    else
+        replace_literal "$skills_bundle" "$old_text" "$new_text" 1
+    fi
+
+    # --- Gw/Pk: individual skill loader — add icon normalization ---
+    # New upstream (Gw, double-quoted, a.fsUtils.*)
+    old_text='async function Gw({recommendedRoot:r,repoRoot:e,path:t,hostConfig:i}){if(!await xe(r,i))return[];const n=await a.fsUtils.readdir(r,i);return(await Promise.all(n.map(async s=>{if(s.startsWith("."))return null;const c=t.join(r,s),u=(await a.fsUtils.stat(c,i)).isDirectory(),d=u?t.join(c,"SKILL.md"):c;if(!await xe(d,i))return null;const p=await a.fsUtils.readFile(d,i),h=Vw(p),f=await Kw({path:t,hostConfig:i,skillRoot:c}),m=u?s:t.parse(s).name,g=h.description??h.shortDescription??m,v=await Xw({path:t,hostConfig:i,skillRoot:c,skillId:m,iconSmall:h.iconSmall??f.iconSmall??null,iconLarge:h.iconLarge??f.iconLarge??null,isDirectory:u}),b=u?Ns(t,e,c):Ns(t,e,d);return{id:m,name:h.name??m,description:g,shortDescription:h.shortDescription??f.shortDescription,iconSmall:v.iconSmall,iconLarge:v.iconLarge,repoPath:b}}))).filter(s=>s!=null)}'
+    new_text='async function Gw({recommendedRoot:r,repoRoot:e,path:t,hostConfig:i}){if(!await xe(r,i))return[];const n=await a.fsUtils.readdir(r,i);return(await Promise.all(n.map(async s=>{if(s.startsWith("."))return null;const c=t.join(r,s),u=(await a.fsUtils.stat(c,i)).isDirectory(),d=u?t.join(c,"SKILL.md"):c;if(!await xe(d,i))return null;const p=await a.fsUtils.readFile(d,i),h=Vw(p),f=await Kw({path:t,hostConfig:i,skillRoot:c}),m=u?s:t.parse(s).name,g=h.description??h.shortDescription??m,v=await Xw({path:t,hostConfig:i,skillRoot:c,skillId:m,iconSmall:h.iconSmall??f.iconSmall??null,iconLarge:h.iconLarge??f.iconLarge??null,isDirectory:u}),b=u?Ns(t,e,c):Ns(t,e,d);return{id:m,name:h.name??m,description:g,shortDescription:h.shortDescription??f.shortDescription,iconSmall:await normalizeSkillIconUrl(v.iconSmall,c,t,i),iconLarge:await normalizeSkillIconUrl(v.iconLarge,c,t,i),repoPath:b}}))).filter(s=>s!=null)}'
+    if ! grep -Fq 'async function Gw({recommendedRoot:r,repoRoot:e' "$skills_bundle"; then
+        # Old upstream (Pk, backtick-quoted, F.readdir/F.stat)
+        # shellcheck disable=SC2016
+        old_text='async function Pk({recommendedRoot:e,repoRoot:t,path:n,hostConfig:r}){if(!await Yk(e,r))return[];let i=await F.readdir(e,r);return(await Promise.all(i.map(async i=>{if(i.startsWith(`.`))return null;let a=n.join(e,i),o=(await F.stat(a,r)).isDirectory(),s=o?n.join(a,`SKILL.md`):a;if(!await Yk(s,r))return null;let c=Lk(await F.readFile(s,r)),l=await zk({path:n,hostConfig:r,skillRoot:a}),u=o?i:n.parse(i).name,d=c.description??c.shortDescription??u,f=await Vk({path:n,hostConfig:r,skillRoot:a,skillId:u,iconSmall:c.iconSmall??l.iconSmall??null,iconLarge:c.iconLarge??l.iconLarge??null,isDirectory:o}),p=o?qk(n,t,a):qk(n,t,s);return{id:u,name:c.name??u,description:d,shortDescription:c.shortDescription??l.shortDescription,iconSmall:f.iconSmall,iconLarge:f.iconLarge,repoPath:p}}))).filter(e=>e!=null)}'
+        # shellcheck disable=SC2016
+        new_text='async function Pk({recommendedRoot:e,repoRoot:t,path:n,hostConfig:r,sourceTag:i=null}){if(!await Yk(e,r))return[];let a=await F.readdir(e,r);return(await Promise.all(a.map(async a=>{if(a.startsWith(`.`))return null;let o=n.join(e,a),s=(await F.stat(o,r)).isDirectory(),c=s?n.join(o,`SKILL.md`):o;if(!await Yk(c,r))return null;let l=Lk(await F.readFile(c,r)),u=await zk({path:n,hostConfig:r,skillRoot:o}),d=s?a:n.parse(a).name,f=l.description??l.shortDescription??d,p=await Vk({path:n,hostConfig:r,skillRoot:o,skillId:d,iconSmall:l.iconSmall??u.iconSmall??null,iconLarge:l.iconLarge??u.iconLarge??null,isDirectory:s}),m=s?qk(n,t,o):qk(n,t,c);return{id:d,name:l.name??d,description:f,shortDescription:l.shortDescription??u.shortDescription,iconSmall:await normalizeSkillIconUrl(p.iconSmall,o,n,r),iconLarge:await normalizeSkillIconUrl(p.iconLarge,o,n,r),repoPath:m,skillSource:i}}))).filter(e=>e!=null)}'
+        replace_literal "$skills_bundle" "$old_text" "$new_text"
+    else
+        replace_literal "$skills_bundle" "$old_text" "$new_text" 1
+    fi
+
+    # --- Ls/tA: skill resolver — prioritize bundled skills over remote ---
+    # New upstream (Ls/Bs/co, double-quoted)
+    old_text='async function Ls({repoRoot:r,bundledRepoRoot:e,repoPath:t,hostConfig:i}){const n=Bs(r,t,i);if(await co(n,i))return n;if(!e)return null;const o=Bs(e,t,i);return await co(o,i)?o:null}'
+    new_text='async function Ls({repoRoot:r,bundledRepoRoot:e,repoPath:t,hostConfig:i}){if(e){const o=Bs(e,t,i);if(await co(o,i))return o}const n=Bs(r,t,i);return await co(n,i)?n:null}'
+    if ! grep -Fq 'async function Ls({repoRoot:r,bundledRepoRoot:e' "$skills_bundle"; then
+        # Old upstream (tA/nA/rA, backtick-quoted)
+        # shellcheck disable=SC2016
+        old_text='async function tA({repoRoot:e,bundledRepoRoot:t,repoPath:n,hostConfig:r}){let i=nA(e,n,r);if(await rA(i,r))return i;if(!t)return null;let a=nA(t,n,r);return await rA(a,r)?a:null}'
+        # shellcheck disable=SC2016
+        new_text='async function tA({repoRoot:e,bundledRepoRoot:t,repoPath:n,hostConfig:r}){if(t){let i=nA(t,n,r);if(await rA(i,r))return i}let a=nA(e,n,r);return await rA(a,r)?a:null}'
+        replace_literal "$skills_bundle" "$old_text" "$new_text"
+    else
+        replace_literal "$skills_bundle" "$old_text" "$new_text" 1
+    fi
 
     # Verify patched bundles parse correctly
     node --check "$main_bundle"
-    node --check "$deeplinks_bundle"
+    [ -n "$secondary_bundle" ] && node --check "$secondary_bundle"
 
     log "Bundles patched successfully"
 }
