@@ -510,18 +510,22 @@ patch_main_js() {
     replace_literal "$main_bundle" 'transparent:!0' 'transparent:!1'
 
     # Vibrancy / visualEffectState / backgroundMaterial — try both quote styles
+    # shellcheck disable=SC2016
     replace_first_available "$main_bundle" 0 \
         'vibrancy:"menu"'  'vibrancy:null' \
         'vibrancy:`menu`'  'vibrancy:null'
 
+    # shellcheck disable=SC2016
     replace_first_available "$main_bundle" 0 \
         'visualEffectState:"active"'  'visualEffectState:null' \
         'visualEffectState:`active`'  'visualEffectState:null'
 
+    # shellcheck disable=SC2016
     replace_first_available "$main_bundle" 0 \
         'backgroundMaterial:"mica"'  'backgroundMaterial:null' \
         'backgroundMaterial:`mica`'  'backgroundMaterial:null'
 
+    # shellcheck disable=SC2016
     replace_first_available "$main_bundle" 0 \
         'backgroundMaterial:"none"'  'backgroundMaterial:null' \
         'backgroundMaterial:`none`'  'backgroundMaterial:null'
