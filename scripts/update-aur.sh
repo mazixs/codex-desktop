@@ -77,7 +77,7 @@ compute_sha256() {
     local download_url="${GITHUB_REPO_URL}/releases/download/v${version}/${archive_name}"
     local tmp_file=""
 
-    printf 'Downloading %s to compute sha256...\n' "$download_url"
+    printf 'Downloading %s to compute sha256...\n' "$download_url" >&2
     tmp_file="$(mktemp)"
     trap 'rm -f "$tmp_file"' RETURN
 
