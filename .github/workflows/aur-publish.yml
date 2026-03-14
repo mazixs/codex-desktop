@@ -68,14 +68,18 @@ jobs:
           echo "=== .SRCINFO ==="
           cat .SRCINFO
 
+      - name: Stage AUR metadata for upload
+        run: |
+          mkdir -p /tmp/aur-upload
+          cp packaging/aur/PKGBUILD /tmp/aur-upload/
+          cp packaging/aur/.SRCINFO /tmp/aur-upload/
+
       - name: Upload AUR metadata
         uses: actions/upload-artifact@v4
         with:
           name: aur-metadata
           include-hidden-files: true
-          path: |
-            packaging/aur/PKGBUILD
-            packaging/aur/.SRCINFO
+          path: /tmp/aur-upload/
           retention-days: 1
 
   push-aur:
@@ -119,8 +123,8 @@ jobs:
           set -euo pipefail
           cd aur_repo
 
-          cp ../aur_out/packaging/aur/PKGBUILD .
-          cp ../aur_out/packaging/aur/.SRCINFO .
+          cp ../aur_out/PKGBUILD .
+          cp ../aur_out/.SRCINFO .
 
           git config user.name "mazix"
           git config user.email "mazix@users.noreply.github.com"
