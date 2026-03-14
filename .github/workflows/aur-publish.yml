@@ -61,7 +61,7 @@ jobs:
           sed -i "s|'[a-fA-F0-9]\{64\}'|'${SHA256}'|" PKGBUILD
 
           chown -R builder:builder .
-          sudo -u builder makepkg --printsrcinfo > .SRCINFO
+          sudo -u builder bash -c 'makepkg --printsrcinfo > .SRCINFO'
 
           echo "=== PKGBUILD ==="
           cat PKGBUILD
