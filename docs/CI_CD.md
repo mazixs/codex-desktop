@@ -178,9 +178,55 @@ Where `<release-version>` is the git tag version (e.g. `0.2.0`) for tagged relea
 - `build-metadata.env`
 - `release-notes.md`
 
+## AUR Publishing
+
+### `aur-publish.yml`
+
+Manually triggered workflow (`workflow_dispatch`) that publishes or updates the `codex-desktop-native` package on AUR.
+
+Inputs:
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `version` | yes | Release version without `v` prefix (e.g. `0.3.0`) |
+| `sha256`  | no  | SHA-256 of the `.pkg.tar.zst` release asset; computed automatically if omitted |
+
+The workflow:
+
+- runs inside an `archlinux:latest` container
+- copies `packaging/aur/PKGBUILD` into a clone of the AUR git repo
+- patches `pkgver` and `sha256sums` in the PKGBUILD
+- generates `.SRCINFO` via `makepkg --printsrcinfo`
+- commits and pushes to `ssh://aur@aur.archlinux.org/codex-desktop-native.git`
+
+**Required secret:** `AUR_SSH_PRIVATE_KEY` — private key authorized to push to the AUR package.
+
+### Local AUR update
+
+The same update can be performed locally on an Arch system:
+
+```bash
+./scripts/update-aur.sh --version 0.3.0 [--sha256 <hash>] [--aur-repo /path/to/aur-clone] [--push]
+```
+
+If `--sha256` is omitted, the script downloads the release archive to compute it. If `--aur-repo` is omitted, it operates on `packaging/aur/` in the project tree. Pass `--push` to commit and push in one step.
+
+### Initial AUR setup (one-time)
+
+1. Register an account at https://aur.archlinux.org/register
+2. Add your SSH public key at https://aur.archlinux.org/account/edit (SSH Keys section)
+3. Clone the empty AUR repo:
+   ```bash
+   git clone ssh://aur@aur.archlinux.org/codex-desktop-native.git
+   ```
+4. Copy `packaging/aur/PKGBUILD` into the clone
+5. Run `makepkg --printsrcinfo > .SRCINFO`
+6. `git add . && git commit -m "Initial import" && git push`
+7. Add the private key as `AUR_SSH_PRIVATE_KEY` in GitHub repository secrets for CI automation
+
 ## Operational Notes
 
-- No extra GitHub secrets are required; the workflows use the default `GITHUB_TOKEN`.
+- The `ci.yml` and `release.yml` workflows use only the default `GITHUB_TOKEN`. The `aur-publish.yml` workflow additionally requires the `AUR_SSH_PRIVATE_KEY` repository secret.
 - The release flow is idempotent for the same tag: rerunning it updates the existing release and replaces uploaded files.
 - Because the build depends on the official upstream DMG, network access to OpenAI's download host is required during smoke builds and releases.
 - External failures such as DMG/CDN/network outages, apt mirror issues, or GitHub service issues are treated as retriable infrastructure failures, not repository regressions.

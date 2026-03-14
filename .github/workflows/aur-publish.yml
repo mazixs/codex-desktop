@@ -1,0 +1,83 @@
+name: Publish to AUR
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version without v prefix (e.g. 0.3.0)'
+        required: true
+        type: string
+      sha256:
+        description: 'SHA-256 of the portable archive. Leave empty to compute automatically.'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  publish-aur:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    container:
+      image: archlinux:latest
+
+    steps:
+      - name: Install dependencies
+        run: |
+          pacman -Syu --noconfirm base-devel git openssh curl
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Configure SSH for AUR
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          mkdir -p /root/.ssh
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > /root/.ssh/aur
+          chmod 600 /root/.ssh/aur
+          cat > /root/.ssh/config <<'SSH_EOF'
+          Host aur.archlinux.org
+            IdentityFile /root/.ssh/aur
+            User aur
+            StrictHostKeyChecking accept-new
+          SSH_EOF
+          chmod 600 /root/.ssh/config
+
+      - name: Clone AUR repository
+        run: |
+          git clone ssh://aur@aur.archlinux.org/codex-desktop-native.git /tmp/aur-repo
+
+      - name: Prepare build user
+        run: |
+          useradd -m builder
+          cp packaging/aur/PKGBUILD /tmp/aur-repo/
+          chown -R builder:builder /tmp/aur-repo
+
+      - name: Update PKGBUILD, generate .SRCINFO, and push
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_SHA256: ${{ inputs.sha256 }}
+        run: |
+          set -euo pipefail
+
+          sha256_flag=""
+          if [ -n "$INPUT_SHA256" ]; then
+            sha256_flag="--sha256 $INPUT_SHA256"
+          fi
+
+          # shellcheck disable=SC2086 -- intentional word splitting on sha256_flag
+          runuser -u builder -- bash scripts/update-aur.sh \
+            --version "$INPUT_VERSION" \
+            $sha256_flag \
+            --aur-repo /tmp/aur-repo
+
+          cd /tmp/aur-repo
+          git config user.name "mazix"
+          git config user.email "mazix@users.noreply.github.com"
+          git add PKGBUILD .SRCINFO
+          git commit -m "Update to ${INPUT_VERSION}"
+          git push
