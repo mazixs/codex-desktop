@@ -23,6 +23,9 @@ What is validated:
 - the repository now builds a prebuilt native Linux release from a tagged pipeline
 - release notes are generated automatically from commit history between tags
 - CI runs workflow linting, shell validation, portable packaging, release-contract checks, and Arch install/launch smoke tests on GitHub Actions
+- the built-in file manager works on Linux and can open both file locations and individual files
+- voice input works on Linux
+- the current Linux build avoids the graphical glitches that are common in other unofficial Codex Desktop Linux solutions
 
 What is still fragile by design:
 
