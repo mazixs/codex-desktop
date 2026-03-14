@@ -99,13 +99,13 @@ update_pkgbuild() {
         exit 1
     fi
 
-    sed -i "s/^pkgver=.*/pkgver=${version}/" "$pkgbuild"
-    sed -i "s/^pkgrel=.*/pkgrel=1/" "$pkgbuild"
+    sed -i "s|^pkgver=.*|pkgver=${version}|" "$pkgbuild"
+    sed -i "s|^pkgrel=.*|pkgrel=1|" "$pkgbuild"
 
     # Replace the sha256 entry in the sha256sums array
-    sed -i "s/'[a-fA-F0-9]\{64\}'/'${sha256}'/" "$pkgbuild"
+    sed -i "s|'[a-fA-F0-9]\{64\}'|'${sha256}'|" "$pkgbuild"
     # Also handle PLACEHOLDER_SHA256
-    sed -i "s/'PLACEHOLDER_SHA256'/'${sha256}'/" "$pkgbuild"
+    sed -i "s|'PLACEHOLDER_SHA256'|'${sha256}'|" "$pkgbuild"
 
     printf 'Updated %s → pkgver=%s sha256=%s\n' "$pkgbuild" "$version" "$sha256"
 }

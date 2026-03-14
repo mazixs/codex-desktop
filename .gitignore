@@ -19,3 +19,7 @@ Codex.dmg
 # Caches
 .npm/
 .pnpm-store/
+
+# Claude code
+.claude/
+
