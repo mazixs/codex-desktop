@@ -64,16 +64,16 @@ jobs:
         run: |
           set -euo pipefail
 
-          sha256_flag=""
           if [ -n "$INPUT_SHA256" ]; then
-            sha256_flag="--sha256 $INPUT_SHA256"
+            runuser -u builder -- bash scripts/update-aur.sh \
+              --version "$INPUT_VERSION" \
+              --sha256 "$INPUT_SHA256" \
+              --aur-repo /tmp/aur-repo
+          else
+            runuser -u builder -- bash scripts/update-aur.sh \
+              --version "$INPUT_VERSION" \
+              --aur-repo /tmp/aur-repo
           fi
-
-          # shellcheck disable=SC2086 -- intentional word splitting on sha256_flag
-          runuser -u builder -- bash scripts/update-aur.sh \
-            --version "$INPUT_VERSION" \
-            $sha256_flag \
-            --aur-repo /tmp/aur-repo
 
           cd /tmp/aur-repo
           git config user.name "mazix"
