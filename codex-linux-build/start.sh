@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DIST_DIR="$SCRIPT_DIR/dist"
 WEBVIEW_PORT="${CODEX_WEBVIEW_PORT:-5175}"
 APP_DESKTOP_ID="codex-desktop"
+UPDATE_CHECK_SCRIPT="$SCRIPT_DIR/update-check.sh"
 
 log() {
     printf '[codex-linux] %s\n' "$1"
@@ -13,6 +14,30 @@ log() {
 err() {
     printf '[codex-linux] %s\n' "$1" >&2
 }
+
+warn() {
+    printf '[codex-linux] %s\n' "$1" >&2
+}
+
+# ---- Pre-launch update check ----
+# Set CODEX_SKIP_UPDATE_CHECK=1 to disable
+if [ "${CODEX_SKIP_UPDATE_CHECK:-0}" != "1" ] && [ -x "$UPDATE_CHECK_SCRIPT" ]; then
+    _SOURCED_BY_START_SH=1
+    source "$UPDATE_CHECK_SCRIPT"
+    update_info="$(check_update)" && {
+        resolved_url="$(printf '%s' "$update_info" | sed -n '1p')"
+        log "Upstream update detected — rebuilding..."
+        if "$SCRIPT_DIR/build.sh" --clean; then
+            # Write metadata after successful build
+            etag="$(printf '%s' "$update_info" | sed -n '2p')"
+            last_modified="$(printf '%s' "$update_info" | sed -n '3p')"
+            write_metadata "$resolved_url" "$etag" "$last_modified" "$LINUX_PATCH_VERSION"
+            log "Update applied successfully"
+        else
+            warn "Auto-rebuild failed — launching existing version"
+        fi
+    } || true
+fi
 
 find_electron_bin() {
     local candidate=""
@@ -105,6 +130,9 @@ if [ "${XDG_SESSION_TYPE:-}" = "wayland" ]; then
 fi
 
 export CHROME_DESKTOP="${APP_DESKTOP_ID}.desktop"
+export ELECTRON_FORCE_IS_PACKAGED=true
+export ELECTRON_IS_DEV=0
+export BUILD_FLAVOR=prod
 
 exec "$ELECTRON_BIN_RESOLVED" \
     "$DIST_DIR" \

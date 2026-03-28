@@ -503,32 +503,23 @@ patch_main_js() {
     # Fully-transparent background used by macOS vibrancy → opaque dark bg.
     # Variable name changes across upstream versions (Hf, So, etc.) so try both.
     # shellcheck disable=SC2016
-    replace_first_available "$main_bundle" 0 \
-        'So="#00000000"' 'So="#1e1e1e"' \
-        'Hf=`#00000000`' 'Hf=`#1e1e1e`'
+    # NOTE: Background transparency and vibrancy patches are intentionally
+    # left as upstream defaults. Linux Electron does not support macOS-style
+    # vibrancy blur, so these need compositor-level solutions (future work).
+    # Upstream patterns: So/#00000000, Hf/#00000000, Nh/#00000000, transparent:!0
 
-    replace_literal "$main_bundle" 'transparent:!0' 'transparent:!1'
+    # Vibrancy / visualEffectState / backgroundMaterial left as upstream defaults.
+    # See NOTE above about compositor-level blur.
 
-    # Vibrancy / visualEffectState / backgroundMaterial — try both quote styles
+    # =====================================================================
+    # --- Auto-hide menu bar on Linux (same as win32) ---
+    # Upstream only sets autoHideMenuBar for win32.
     # shellcheck disable=SC2016
     replace_first_available "$main_bundle" 0 \
-        'vibrancy:"menu"'  'vibrancy:null' \
-        'vibrancy:`menu`'  'vibrancy:null'
-
-    # shellcheck disable=SC2016
-    replace_first_available "$main_bundle" 0 \
-        'visualEffectState:"active"'  'visualEffectState:null' \
-        'visualEffectState:`active`'  'visualEffectState:null'
-
-    # shellcheck disable=SC2016
-    replace_first_available "$main_bundle" 0 \
-        'backgroundMaterial:"mica"'  'backgroundMaterial:null' \
-        'backgroundMaterial:`mica`'  'backgroundMaterial:null'
-
-    # shellcheck disable=SC2016
-    replace_first_available "$main_bundle" 0 \
-        'backgroundMaterial:"none"'  'backgroundMaterial:null' \
-        'backgroundMaterial:`none`'  'backgroundMaterial:null'
+        'process.platform===`win32`?{autoHideMenuBar:!0}:{}' \
+            'process.platform===`win32`||process.platform===`linux`?{autoHideMenuBar:!0}:{}' \
+        'process.platform==="win32"?{autoHideMenuBar:!0}:{}' \
+            'process.platform==="win32"||process.platform==="linux"?{autoHideMenuBar:!0}:{}'
 
     # =====================================================================
     # --- Add Linux file manager support ---
@@ -569,7 +560,16 @@ patch_main_js() {
         old_text='function yc(n){let r=e.qt(n),i=t.app.getAppPath();if(t.app.isPackaged)return r.join(i,`skills`);let o=r.join(i,`assets`,`skills`);if((0,a.existsSync)(o))return o;let s=r.join(i,`..`,`assets`,`skills`);return(0,a.existsSync)(s)?s:null}'
         # shellcheck disable=SC2016
         new_text='function yc(n){let r=e.qt(n),i=t.app.getAppPath(),o=r.join(i,`skills`);if((0,a.existsSync)(o))return o;if(t.app.isPackaged)return o;let s=r.join(i,`assets`,`skills`);if((0,a.existsSync)(s))return s;let c=r.join(i,`..`,`skills`);if((0,a.existsSync)(c))return c;let l=r.join(i,`..`,`assets`,`skills`);return(0,a.existsSync)(l)?l:null}'
-        replace_literal "$main_bundle" "$old_text" "$new_text" 1
+        if grep -Fq "$old_text" "$main_bundle"; then
+            replace_literal "$main_bundle" "$old_text" "$new_text" 1
+        else
+            # March 2026 upstream (Hs, backtick-quoted, let/e.rn/n.app)
+            # shellcheck disable=SC2016
+            old_text='function Hs(t){let r=e.rn(t),i=n.app.getAppPath();if(n.app.isPackaged)return r.join(i,`skills`);let o=r.join(i,`assets`,`skills`);if((0,a.existsSync)(o))return o;let s=r.join(i,`..`,`assets`,`skills`);return(0,a.existsSync)(s)?s:null}'
+            # shellcheck disable=SC2016
+            new_text='function Hs(t){let r=e.rn(t),i=n.app.getAppPath(),o=r.join(i,`skills`);if((0,a.existsSync)(o))return o;if(n.app.isPackaged)return o;let s=r.join(i,`assets`,`skills`);if((0,a.existsSync)(s))return s;let c=r.join(i,`..`,`skills`);if((0,a.existsSync)(c))return c;let l=r.join(i,`..`,`assets`,`skills`);return(0,a.existsSync)(l)?l:null}'
+            replace_literal "$main_bundle" "$old_text" "$new_text" 1
+        fi
     fi
 
     # =====================================================================
@@ -585,6 +585,8 @@ patch_main_js() {
     fi
 
     # --- so/Mk: recommended skills loader — add bundled skill override support ---
+    # These patches add support for bundled skill overrides. They are OPTIONAL —
+    # if the upstream minified variable names change, the app still works without them.
     # New upstream (so, double-quoted, a.isRemoteHostConfig, Ms/Gw/Uw)
     old_text='async function so({refresh:r=!1,preferWsl:e=!1,bundledRepoRoot:t=null,hostConfig:i}){const n=a.isRemoteHostConfig(i)?i.terminal_command.join(" "):void 0,o=a.isRemoteHostConfig(i)?await a.resolveRemoteSshCodexHome(i):a.resolveCodexHome({preferWsl:e}),s=a.platformPath(i),c=s.join(o,"vendor_imports"),l=s.join(c,"skills"),u=ix(s),d=ox(s),p=d.map(E=>s.join(l,E)),h=s.join(l,u),f=s.join(c,"skills-curated-cache.json"),m=n||!t?null:s.resolve(t),g=m?d.map(E=>s.join(m,E)):null,v=m?s.join(m,u):null,b=await rx(f,i),w=r||!b||nx(b),D=await xe(s.join(l,".git"),i),_=await xe(h,i),I=v?await xe(v,i):!1;try{if(!r&&!D&&!_&&I){const $=await Ms({repoRoot:m??l,recommendedRoots:g??p,path:s,hostConfig:i}),O=Date.now();return await Us(f,{fetchedAt:O,skills:$},i),{skills:$,fetchedAt:O,source:"bundled",repoRoot:m??null,error:null}}let E=!1;w&&(D||!_)&&(await Yw({repoRoot:l,vendorRoot:c,hostConfig:i}),await Qw(l,i),await ex(l,d,i),E=!0);const S=await Ms({repoRoot:l,recommendedRoots:p,path:s,hostConfig:i}),P=E?Date.now():b?.fetchedAt??Date.now();return await Us(f,{fetchedAt:P,skills:S},i),{skills:S,fetchedAt:P,source:E?"git":"cache",repoRoot:l,error:null}}catch(E){const S=E instanceof Error?E.message:String(E),P=!_&&!D&&I&&m?m:l;return Uw().warning("Failed to load recommended skills",{safe:{},sensitive:{error:E}}),b?{skills:b.skills,fetchedAt:b.fetchedAt,source:"cache",repoRoot:P,error:S}:{skills:[],fetchedAt:null,source:"cache",repoRoot:P,error:S}}}'
     new_text='async function so({refresh:r=!1,preferWsl:e=!1,bundledRepoRoot:t=null,hostConfig:i}){const n=a.isRemoteHostConfig(i)?i.terminal_command.join(" "):void 0,o=a.isRemoteHostConfig(i)?await a.resolveRemoteSshCodexHome(i):a.resolveCodexHome({preferWsl:e}),s=a.platformPath(i),c=s.join(o,"vendor_imports"),l=s.join(c,"skills"),u=ix(s),d=ox(s),p=d.map(E=>s.join(l,E)),h=s.join(l,u),f=s.join(c,"skills-curated-cache.json"),m=n||!t?null:s.resolve(t),g=m?d.map(E=>s.join(m,E)):[],v=m?s.join(m,u):null,b=await rx(f,i),w=r||!b||nx(b),D=await xe(s.join(l,".git"),i),_=await xe(h,i),I=v?await xe(v,i):!1,Q=async()=>I&&m?Ms({repoRoot:m,recommendedRoots:g,path:s,hostConfig:i}):[];try{if(!r&&!D&&!_&&I){const $=await Q(),O=Date.now();return await Us(f,{fetchedAt:O,skills:$},i),{skills:$,fetchedAt:O,source:"bundled",repoRoot:m??null,error:null}}let E=!1;w&&(D||!_)&&(await Yw({repoRoot:l,vendorRoot:c,hostConfig:i}),await Qw(l,i),await ex(l,d,i),E=!0);const S=await Ms({repoRoot:l,recommendedRoots:p,path:s,hostConfig:i}),R=await Q().catch(()=>[]),P=mergeRecommendedSkillLists(R,S),F=E?Date.now():b?.fetchedAt??Date.now();return await Us(f,{fetchedAt:F,skills:P},i),{skills:P,fetchedAt:F,source:E?"git":"cache",repoRoot:l,error:null}}catch(E){const S=E instanceof Error?E.message:String(E),P=!_&&!D&&I&&m?m:l,F=await Q().catch(()=>[]);return Uw().warning("Failed to load recommended skills",{safe:{},sensitive:{error:E}}),b?{skills:mergeRecommendedSkillLists(F,b.skills),fetchedAt:b.fetchedAt,source:"cache",repoRoot:P,error:S}:{skills:F,fetchedAt:null,source:F.length>0?"bundled":"cache",repoRoot:P,error:S}}}function mergeRecommendedSkillLists(r,e){const t=new Map;for(const i of[...r,...e])t.has(i.id)||t.set(i.id,i);return Array.from(t.values()).sort((i,n)=>i.name.localeCompare(n.name))}'
@@ -885,6 +887,20 @@ main() {
 
     if [ "$PACKAGE_RELEASE" -eq 1 ]; then
         package_release
+    fi
+
+    # Write update metadata so the auto-update checker knows this version
+    local update_check="$SCRIPT_DIR/update-check.sh"
+    if [ -x "$update_check" ]; then
+        _SOURCED_BY_START_SH=1
+        source "$update_check"
+        local remote_meta resolved_url etag last_modified
+        resolved_url="$(resolve_dmg_url)"
+        remote_meta="$(get_remote_metadata "$resolved_url")"
+        etag="$(printf '%s' "$remote_meta" | head -1)"
+        last_modified="$(printf '%s' "$remote_meta" | tail -1)"
+        write_metadata "$resolved_url" "$etag" "$last_modified" "$LINUX_PATCH_VERSION"
+        log "Update metadata written to $METADATA_FILE"
     fi
 
     printf '\n'
