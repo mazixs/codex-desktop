@@ -17,9 +17,15 @@ err() {
 find_electron_bin() {
     local candidate=""
     local electron_cli="$SCRIPT_DIR/node_modules/electron/cli.js"
+    local electron_dist="$SCRIPT_DIR/node_modules/electron/dist/electron"
 
     if [ -n "${ELECTRON_BIN:-}" ] && [ -x "${ELECTRON_BIN}" ]; then
         printf '%s\n' "${ELECTRON_BIN}"
+        return 0
+    fi
+
+    if [ -x "$electron_dist" ]; then
+        printf '%s\n' "$electron_dist"
         return 0
     fi
 
@@ -36,6 +42,23 @@ find_electron_bin() {
 
     if command -v electron >/dev/null 2>&1; then
         command -v electron
+        return 0
+    fi
+
+    return 1
+}
+
+find_node_bin() {
+    local candidate=""
+
+    candidate="$(find "$SCRIPT_DIR/node_modules" -path '*/electron/dist/electron' -type f 2>/dev/null | head -n 1 || true)"
+    if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+        printf '%s\n' "$candidate"
+        return 0
+    fi
+
+    if command -v node >/dev/null 2>&1; then
+        command -v node
         return 0
     fi
 
@@ -91,6 +114,12 @@ if [ -z "$ELECTRON_BIN_RESOLVED" ]; then
     exit 1
 fi
 
+NODE_BIN_RESOLVED="$(find_node_bin || true)"
+if [ -z "$NODE_BIN_RESOLVED" ]; then
+    err "Node runtime not found. Install dependencies with bundled Electron runtime or provide node in PATH."
+    exit 1
+fi
+
 if CODEX_CLI_PATH_RESOLVED="$(resolve_codex_cli || true)"; then
     export CODEX_CLI_PATH="$CODEX_CLI_PATH_RESOLVED"
     log "Using Codex CLI at $CODEX_CLI_PATH"
@@ -100,7 +129,11 @@ else
 fi
 
 free_webview_port
-node "$DIST_DIR/webview-server.js" &
+if [[ "$NODE_BIN_RESOLVED" == *"/electron/dist/electron" ]]; then
+    ELECTRON_RUN_AS_NODE=1 "$NODE_BIN_RESOLVED" "$DIST_DIR/webview-server.js" &
+else
+    "$NODE_BIN_RESOLVED" "$DIST_DIR/webview-server.js" &
+fi
 WEBVIEW_PID=$!
 
 cleanup() {

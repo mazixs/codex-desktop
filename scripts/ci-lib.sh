@@ -3,6 +3,7 @@
 PACKAGE_PRODUCT_ID="${PACKAGE_PRODUCT_ID:-codex-desktop-native}"
 PORTABLE_PLATFORM_ID="${PORTABLE_PLATFORM_ID:-linux-portable-x64}"
 ARCH_PLATFORM_ID="${ARCH_PLATFORM_ID:-archlinux-x86_64}"
+DEB_PLATFORM_ID="${DEB_PLATFORM_ID:-debian-amd64}"
 PORTABLE_MIN_SIZE_BYTES="${PORTABLE_MIN_SIZE_BYTES:-52428800}"
 
 ci_log() {
@@ -47,6 +48,15 @@ arch_release_filename() {
 
 arch_release_glob() {
     printf '%s-*-%s.pkg.tar.zst\n' "$PACKAGE_PRODUCT_ID" "$ARCH_PLATFORM_ID"
+}
+
+deb_release_filename() {
+    local version="$1"
+    printf '%s-%s-%s.deb\n' "$PACKAGE_PRODUCT_ID" "$version" "$DEB_PLATFORM_ID"
+}
+
+deb_release_glob() {
+    printf '%s-*-%s.deb\n' "$PACKAGE_PRODUCT_ID" "$DEB_PLATFORM_ID"
 }
 
 require_file() {

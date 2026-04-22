@@ -58,6 +58,7 @@ jobs:
           shellcheck codex-linux-build/start.sh
           shellcheck scripts/generate-release-notes.sh
           shellcheck scripts/build-arch-package.sh
+          shellcheck scripts/build-deb-package.sh
           shellcheck packaging/arch/codex-desktop-wrapper.sh
           shellcheck packaging/skills-overrides/.curated/playwright/scripts/playwright_cli.sh
 
@@ -77,7 +78,7 @@ jobs:
         run: ./scripts/verify-portable-artifact.sh --artifacts-dir codex-linux-build/artifacts --release-notes codex-linux-build/artifacts/release-notes.md
 
       - name: Upload portable release bundle
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: portable-release-${{ github.ref_name }}
           retention-days: 1
@@ -97,7 +98,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Download portable release bundle
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: portable-release-${{ github.ref_name }}
           path: /tmp/codex-portable
@@ -125,7 +126,7 @@ jobs:
             '
 
       - name: Upload Arch package bundle
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: arch-release-${{ github.ref_name }}
           retention-days: 1
@@ -133,10 +134,77 @@ jobs:
             /tmp/codex-arch-output/*.pkg.tar.zst
             /tmp/codex-arch-output/*.pkg.tar.zst.sha256
 
+  build-deb-package:
+    needs: build-portable
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Download portable release bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: portable-release-${{ github.ref_name }}
+          path: /tmp/codex-portable
+
+      - name: Install Debian packaging and runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            dpkg-dev \
+            libasound2 \
+            libatk-bridge2.0-0 \
+            libatk1.0-0 \
+            libcups2 \
+            libdbus-1-3 \
+            libdrm2 \
+            libgbm1 \
+            libglib2.0-0 \
+            libgtk-3-0 \
+            libnspr4 \
+            libnss3 \
+            libx11-6 \
+            libx11-xcb1 \
+            libxcb-dri3-0 \
+            libxcomposite1 \
+            libxdamage1 \
+            libxext6 \
+            libxfixes3 \
+            libxkbcommon0 \
+            libxrandr2 \
+            xdg-utils \
+            xvfb
+
+      - name: Build Debian package
+        run: |
+          set -euo pipefail
+          source ./scripts/ci-lib.sh
+          archive="$(find_single_matching_file /tmp/codex-portable "$(portable_release_glob)" "portable archive")"
+          ./scripts/build-deb-package.sh --source "$archive" --metadata /tmp/codex-portable/build-metadata.env --output-dir /tmp/codex-deb-output
+
+      - name: Verify Debian package
+        run: |
+          set -euo pipefail
+          source ./scripts/ci-lib.sh
+          package_file="$(find_single_matching_file /tmp/codex-deb-output "$(deb_release_glob)" "Debian package")"
+          ./scripts/verify-deb-package.sh --package "$package_file"
+
+      - name: Upload Debian package bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: deb-release-${{ github.ref_name }}
+          retention-days: 1
+          path: |
+            /tmp/codex-deb-output/*.deb
+            /tmp/codex-deb-output/*.deb.sha256
+
   publish-release:
     needs:
       - build-portable
       - build-arch-package
+      - build-deb-package
     runs-on: ubuntu-24.04
     timeout-minutes: 30
 
@@ -145,19 +213,25 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Download portable release bundle
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: portable-release-${{ github.ref_name }}
           path: /tmp/release-portable
 
       - name: Download Arch package bundle
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: arch-release-${{ github.ref_name }}
           path: /tmp/release-arch
 
+      - name: Download Debian package bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: deb-release-${{ github.ref_name }}
+          path: /tmp/release-deb
+
       - name: Verify release asset contract
-        run: ./scripts/verify-release-assets.sh --portable-dir /tmp/release-portable --arch-dir /tmp/release-arch
+        run: ./scripts/verify-release-assets.sh --portable-dir /tmp/release-portable --arch-dir /tmp/release-arch --deb-dir /tmp/release-deb
 
       - name: Publish GitHub release
         env:
@@ -172,9 +246,12 @@ jobs:
           build_metadata="/tmp/release-portable/build-metadata.env"
           arch_archive="$(find_single_matching_file /tmp/release-arch "$(arch_release_glob)" "Arch release package")"
           arch_checksum="${arch_archive}.sha256"
+          deb_archive="$(find_single_matching_file /tmp/release-deb "$(deb_release_glob)" "Debian release package")"
+          deb_checksum="${deb_archive}.sha256"
           require_file "$portable_checksum"
           require_file "$build_metadata"
           require_file "$arch_checksum"
+          require_file "$deb_checksum"
           require_file /tmp/release-portable/release-notes.md
           if gh release view "${GITHUB_REF_NAME}" --repo "$repo" >/dev/null 2>&1; then
             gh release upload "${GITHUB_REF_NAME}" \
@@ -183,6 +260,8 @@ jobs:
               "$build_metadata" \
               "$arch_archive" \
               "$arch_checksum" \
+              "$deb_archive" \
+              "$deb_checksum" \
               --repo "$repo" \
               --clobber
             gh release edit "${GITHUB_REF_NAME}" --repo "$repo" --title "${GITHUB_REF_NAME}" --notes-file /tmp/release-portable/release-notes.md
@@ -193,6 +272,8 @@ jobs:
               "$build_metadata" \
               "$arch_archive" \
               "$arch_checksum" \
+              "$deb_archive" \
+              "$deb_checksum" \
               --repo "$repo" \
               --title "${GITHUB_REF_NAME}" \
               --notes-file /tmp/release-portable/release-notes.md

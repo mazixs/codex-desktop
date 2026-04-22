@@ -114,6 +114,7 @@ main() {
     local notes_file=""
     local portable_asset_name=""
     local arch_asset_name=""
+    local deb_asset_name=""
 
     parse_args "$@"
 
@@ -137,8 +138,10 @@ main() {
         portable_asset_name="${PORTABLE_ARCHIVE_NAME:-}"
         if [ -n "$release_version" ]; then
             arch_asset_name="$(arch_release_filename "$release_version")"
+            deb_asset_name="$(deb_release_filename "$release_version")"
         elif [ -n "$upstream_version" ]; then
             arch_asset_name="$(arch_release_filename "$upstream_version")"
+            deb_asset_name="$(deb_release_filename "$upstream_version")"
         fi
     fi
 
@@ -179,6 +182,10 @@ main() {
         arch_asset_name="$(arch_release_filename "$release_version")"
     fi
 
+    if [ -z "$deb_asset_name" ] && [ -n "$release_version" ]; then
+        deb_asset_name="$(deb_release_filename "$release_version")"
+    fi
+
     notes_file="$(mktemp)"
     {
         printf '# %s\n\n' "$REF"
@@ -189,6 +196,11 @@ main() {
             printf -- "- Arch Linux installer: \`%s\`\n" "$arch_asset_name"
         else
             printf -- "- Arch Linux installer: \`codex-desktop-native-<upstream-version>-archlinux-x86_64.pkg.tar.zst\`\n"
+        fi
+        if [ -n "$deb_asset_name" ]; then
+            printf -- "- Debian/Ubuntu installer: \`%s\`\n" "$deb_asset_name"
+        else
+            printf -- "- Debian/Ubuntu installer: \`codex-desktop-native-<upstream-version>-debian-amd64.deb\`\n"
         fi
         if [ -n "$portable_asset_name" ]; then
             printf -- "- Portable Linux archive: \`%s\`\n" "$portable_asset_name"

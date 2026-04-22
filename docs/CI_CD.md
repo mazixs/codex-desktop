@@ -25,6 +25,8 @@ Smoke build:
 - uploads the resulting archive, checksum, and build metadata as workflow artifacts
 - runs a second smoke job that converts the portable archive into an Arch `pkg.tar.zst` inside an `archlinux` container
 - installs that Arch package with `pacman -U` and runs a headless launch smoke test
+- runs a Debian smoke job on Ubuntu that converts the portable archive into a `.deb`
+- installs that Debian package with `dpkg -i` and runs the same headless launch smoke test
 
 ### `release.yml`
 
@@ -37,10 +39,12 @@ Release steps:
 - verifies the portable bundle contains bundled Electron, packaged skills overrides, icons, metadata, and can launch under `xvfb-run`
 - turns that artifact into a pacman package via `scripts/build-arch-package.sh` and `packaging/arch/PKGBUILD`
 - verifies the pacman package payload contract, installs it in the Arch container, and runs a headless launch smoke test
+- turns that artifact into a Debian package via `scripts/build-deb-package.sh`
+- verifies the Debian package payload contract, installs it on the Ubuntu runner, and runs a headless launch smoke test
 - generates release notes from commits between the previous tag and the current tag
 - validates the release asset contract before publish
 - creates or updates the GitHub Release
-- uploads the portable archive, the Arch package, checksums, and metadata
+- uploads the portable archive, the Arch package, the Debian package, checksums, and metadata
 
 ## Versioning Strategy
 
@@ -67,8 +71,10 @@ resolve_release_version() {
 The resolved version is used for:
 - Portable archive filename (`codex-desktop-native-<version>-linux-portable-x64.tar.gz`)
 - Arch package filename (`codex-desktop-native-<version>-archlinux-x86_64.pkg.tar.zst`)
+- Debian package filename (`codex-desktop-native-<version>-debian-amd64.deb`)
 - `RELEASE_VERSION` field in `build-metadata.env`
 - Pacman `pkgver` in the Arch package
+- Debian package `Version`
 
 The upstream DMG version is preserved as `UPSTREAM_VERSION` in metadata for informational purposes.
 
@@ -96,7 +102,7 @@ The script includes:
 - upstream Codex version embedded in the built artifact when available
 - every commit subject in the range
 - every commit body in the range as the "comment" section
-- platform-specific asset labels for the Arch Linux installer and portable Linux archive
+- platform-specific asset labels for the Arch Linux installer, Debian installer, and portable Linux archive
 
 That means a pushed tag automatically gets a release body containing the full commit commentary for the iteration.
 
@@ -107,6 +113,7 @@ The workflow and scripts share a single contract implemented in repository shell
 - [`scripts/ci-lib.sh`](../scripts/ci-lib.sh) defines canonical asset names and common failure helpers
 - [`scripts/verify-portable-artifact.sh`](../scripts/verify-portable-artifact.sh) validates portable archives before artifact upload and before release publication
 - [`scripts/verify-arch-package.sh`](../scripts/verify-arch-package.sh) validates pacman package payloads and launch behavior
+- [`scripts/verify-deb-package.sh`](../scripts/verify-deb-package.sh) validates Debian package payloads and launch behavior
 - [`scripts/verify-release-assets.sh`](../scripts/verify-release-assets.sh) validates the final publish inputs
 
 This means CI and release jobs do not reimplement archive naming or smoke logic independently in YAML.
@@ -125,6 +132,15 @@ Fast validation:
 ```bash
 pnpm run verify
 shellcheck build.sh start.sh ../scripts/generate-release-notes.sh ../scripts/build-arch-package.sh ../packaging/arch/codex-desktop-wrapper.sh ../packaging/skills-overrides/.curated/playwright/scripts/playwright_cli.sh
+```
+
+Debian package from the portable artifact:
+
+```bash
+./scripts/build-deb-package.sh \
+  --source codex-linux-build/artifacts/*.tar.gz \
+  --metadata codex-linux-build/artifacts/build-metadata.env \
+  --output-dir codex-linux-build/artifacts
 ```
 
 Workflow linting:
@@ -173,6 +189,8 @@ GitHub Release uploads:
 - `codex-desktop-native-<release-version>-linux-portable-x64.tar.gz.sha256`
 - `codex-desktop-native-<release-version>-archlinux-x86_64.pkg.tar.zst`
 - `codex-desktop-native-<release-version>-archlinux-x86_64.pkg.tar.zst.sha256`
+- `codex-desktop-native-<release-version>-debian-amd64.deb`
+- `codex-desktop-native-<release-version>-debian-amd64.deb.sha256`
 
 Where `<release-version>` is the git tag version (e.g. `0.2.0`) for tagged releases, or the upstream DMG version for CI smoke builds.
 - `build-metadata.env`
