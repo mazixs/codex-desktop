@@ -51,7 +51,7 @@ package() {
   local icon_size=""
 
   install -dm755 "${pkgdir}/opt/codex-desktop"
-  cp -a "${srcdir}/${release_root}/." "${pkgdir}/opt/codex-desktop/"
+  cp -a --no-preserve=ownership "${srcdir}/${release_root}/." "${pkgdir}/opt/codex-desktop/"
 
   install -Dm755 "${srcdir}/codex-desktop-wrapper.sh" "${pkgdir}/usr/bin/codex-desktop"
   install -Dm644 "${srcdir}/codex-desktop.desktop" "${pkgdir}/usr/share/applications/codex-desktop.desktop"

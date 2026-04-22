@@ -16,9 +16,15 @@ err() {
 
 find_electron_bin() {
     local candidate=""
+    local electron_cli="$SCRIPT_DIR/node_modules/electron/cli.js"
 
     if [ -n "${ELECTRON_BIN:-}" ] && [ -x "${ELECTRON_BIN}" ]; then
         printf '%s\n' "${ELECTRON_BIN}"
+        return 0
+    fi
+
+    if [ -f "$electron_cli" ]; then
+        printf 'node:%s\n' "$electron_cli"
         return 0
     fi
 
@@ -49,9 +55,15 @@ free_webview_port() {
 
 resolve_codex_cli() {
     local local_codex="$SCRIPT_DIR/node_modules/.bin/codex"
+    local packaged_codex_js="$SCRIPT_DIR/node_modules/@openai/codex/bin/codex.js"
 
     if [ -x "$local_codex" ]; then
         printf '%s\n' "$local_codex"
+        return 0
+    fi
+
+    if [ -f "$packaged_codex_js" ]; then
+        printf '%s\n' "$packaged_codex_js"
         return 0
     fi
 
@@ -105,6 +117,17 @@ if [ "${XDG_SESSION_TYPE:-}" = "wayland" ]; then
 fi
 
 export CHROME_DESKTOP="${APP_DESKTOP_ID}.desktop"
+
+if [[ "$ELECTRON_BIN_RESOLVED" == node:* ]]; then
+    exec node "${ELECTRON_BIN_RESOLVED#node:}" \
+        "$DIST_DIR" \
+        --no-sandbox \
+        --disable-gpu-compositing \
+        --disable-background-timer-throttling \
+        --class="$APP_DESKTOP_ID" \
+        "${OZONE_FLAGS[@]}" \
+        "$@"
+fi
 
 exec "$ELECTRON_BIN_RESOLVED" \
     "$DIST_DIR" \

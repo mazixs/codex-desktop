@@ -23,3 +23,6 @@ Codex.dmg
 # Claude code
 .claude/
 
+# Local agent metadata
+.codex
+AGENTS.md
