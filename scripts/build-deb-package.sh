@@ -114,7 +114,7 @@ Section: utils
 Priority: optional
 Architecture: amd64
 Maintainer: mazix
-Depends: libc6, libasound2, libatk-bridge2.0-0, libatk1.0-0, libcups2, libdbus-1-3, libdrm2, libgbm1, libglib2.0-0, libgtk-3-0, libnspr4, libnss3, libx11-6, libx11-xcb1, libxcb-dri3-0, libxcomposite1, libxdamage1, libxext6, libxfixes3, libxkbcommon0, libxrandr2, xdg-utils
+Depends: libc6, libasound2t64 | libasound2, libatk-bridge2.0-0t64 | libatk-bridge2.0-0, libatk1.0-0t64 | libatk1.0-0, libcups2t64 | libcups2, libdbus-1-3, libdrm2, libgbm1, libglib2.0-0t64 | libglib2.0-0, libgtk-3-0t64 | libgtk-3-0, libnspr4, libnss3, libx11-6, libx11-xcb1, libxcb-dri3-0, libxcomposite1, libxdamage1, libxext6, libxfixes3, libxkbcommon0, libxrandr2, xdg-utils
 Provides: codex-desktop
 Conflicts: codex-desktop
 Replaces: codex-desktop
