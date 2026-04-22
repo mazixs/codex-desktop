@@ -125,7 +125,6 @@ EOF
 }
 
 main() {
-    local source_basename=""
     local release_label=""
     local package_version=""
     local release_asset_name=""
@@ -163,7 +162,6 @@ main() {
 
     package_version="$(derive_package_version "$release_label")"
     release_asset_name="$(deb_release_filename "$package_version")"
-    source_basename="$(basename "$SOURCE_ARCHIVE")"
 
     WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/codex-deb-package.XXXXXX")"
     extract_dir="$WORK_DIR/extract"
