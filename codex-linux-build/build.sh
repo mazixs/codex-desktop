@@ -510,9 +510,10 @@ patch_main_js() {
     # =====================================================================
 
     # Fully-transparent background used by macOS vibrancy → opaque dark bg.
-    # Variable name changes across upstream versions (Hf, So, etc.) so try both.
+    # Variable name changes across upstream versions (Hf, So, Sy, etc.) so try known aliases.
     # shellcheck disable=SC2016
-    replace_first_available "$main_bundle" 0 \
+    replace_first_available "$main_bundle" 1 \
+        'Sy=`#00000000`' 'Sy=`#1e1e1e`' \
         'So="#00000000"' 'So="#1e1e1e"' \
         'Hf=`#00000000`' 'Hf=`#1e1e1e`'
 
@@ -538,6 +539,13 @@ patch_main_js() {
     replace_first_available "$main_bundle" 0 \
         'backgroundMaterial:"none"'  'backgroundMaterial:null' \
         'backgroundMaterial:`none`'  'backgroundMaterial:null'
+
+    # Hide the native application menu by default on Linux. Electron will still
+    # reveal it when the user presses Alt, matching standard Linux desktop behavior.
+    # shellcheck disable=SC2016
+    replace_first_available "$main_bundle" 1 \
+        '...process.platform===`win32`?{autoHideMenuBar:!0}:{}' \
+        '...process.platform===`win32`||process.platform===`linux`?{autoHideMenuBar:!0}:{}'
 
     # =====================================================================
     # --- Add Linux file manager support ---

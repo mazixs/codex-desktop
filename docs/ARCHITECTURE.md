@@ -29,12 +29,13 @@ macOS relies on native compositor features (`vibrancy`, `backgroundMaterial`) fo
 
 | Patch | Occurrences | Purpose |
 |-------|-------------|--------|
-| `Hf=\`#00000000\`` → `Hf=\`#1e1e1e\`` | 1 | Replace fully-transparent background color with opaque dark. `Hf` is the default `backgroundColor` passed to every `BrowserWindow`; on macOS it is invisible behind vibrancy, on Linux it becomes the visible background. |
+| `Sy=\`#00000000\`` / `So="#00000000"` / `Hf=\`#00000000\`` → opaque dark | 1 | Replace fully-transparent background color with opaque dark. The minified variable name changes across upstream builds; this value is the default `backgroundColor` passed to every `BrowserWindow`. |
 | `transparent:!0` → `transparent:!1` | 2 | Disable transparent frameless windows (hotkey overlay windows). |
 | `vibrancy:\`menu\`` → `vibrancy:null` | 3 | Neutralize macOS vibrancy effect for primary, secondary, and HUD windows. |
 | `visualEffectState:\`active\`` → `visualEffectState:null` | 1 | Neutralize macOS visual effect on HUD window. |
 | `backgroundMaterial:\`mica\`` → `backgroundMaterial:null` | 1 | Neutralize Windows Mica acrylic material. |
 | `backgroundMaterial:\`none\`` → `backgroundMaterial:null` | 1 | Neutralize Windows background material for opaque mode. |
+| `autoHideMenuBar` Windows guard → Windows or Linux | 1 | Hide the native menu bar by default on Linux while preserving Alt-key reveal behavior. |
 
 The `ap()` function in the main bundle returns `{backgroundColor, backgroundMaterial}` per window type. The `op()` function returns platform-specific window chrome options (`vibrancy`, `transparent`, `titleBarStyle`, etc.). Both are patched to produce Linux-safe values.
 

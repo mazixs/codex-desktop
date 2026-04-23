@@ -32,15 +32,16 @@ Minified JavaScript requires exact structural `sed` replacements:
 
 ## 6. Resolving Linux Composition (Transparency Fix)
 
-* **The Bug:** macOS uses `vibrancy` and `backgroundMaterial` for frosted glass window effects. The default `backgroundColor` is set to `#00000000` (fully transparent) in the minified variable `Hf`, which is invisible behind vibrancy on macOS but renders as a completely transparent window on Linux.
+* **The Bug:** macOS uses `vibrancy` and `backgroundMaterial` for frosted glass window effects. The default `backgroundColor` is set to `#00000000` (fully transparent) in a minified variable (`Sy`, `So`, `Hf`, etc. depending on upstream build), which is invisible behind vibrancy on macOS but renders as a transparent window on Linux.
 
-* **The Fix (6 patches in main bundle):**
-  1. `Hf=\`#00000000\`` → `Hf=\`#1e1e1e\`` — replace transparent background with opaque dark color. `Hf` is the default `backgroundColor` for all `BrowserWindow` instances. Related constants: `Uf=\`#000000\`` (dark theme), `Wf=\`#f9f9f9\`` (light theme).
+* **The Fix (7 patches in main bundle):**
+  1. `Sy=\`#00000000\`` / `So="#00000000"` / `Hf=\`#00000000\`` → opaque dark color — replace transparent window background with an opaque dark fallback. The variable name changes between upstream builds, but it is the default `backgroundColor` for all `BrowserWindow` instances.
   2. `transparent:!0` → `transparent:!1` — disable transparent frameless windows (2 hotkey overlay windows).
   3. `vibrancy:\`menu\`` → `vibrancy:null` — neutralize macOS vibrancy (3 window types: primary, secondary, HUD).
   4. `visualEffectState:\`active\`` → `visualEffectState:null` — neutralize macOS visual effect (HUD window).
   5. `backgroundMaterial:\`mica\`` → `backgroundMaterial:null` — neutralize Windows Mica acrylic.
   6. `backgroundMaterial:\`none\`` → `backgroundMaterial:null` — neutralize Windows opaque background material.
+  7. Enable `autoHideMenuBar` for Linux so the native `File/Edit/View/Window/Help` bar is hidden by default and revealed with `Alt`.
 
 * **Key functions patched:**
   - `ap({platform, appearance, opaqueWindowsEnabled, prefersDarkColors})` — returns `{backgroundColor, backgroundMaterial}` per window type. After patching, always returns `{backgroundColor: '#1e1e1e', backgroundMaterial: null}` on Linux.
