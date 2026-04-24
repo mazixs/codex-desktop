@@ -57,8 +57,10 @@ Minified JavaScript requires exact structural `sed` replacements:
 The current maintenance baseline also includes:
 
 * **Fresh upstream DMG refresh:** the repository-local `Codex.dmg` was replaced after confirming a SHA-256 change from `65d3114117f1f03157e2968358e7c1bbaca48f3fe4a9bc9b71fc6f719e9702eb` to `590b5b986c26c10efa82d605b677eea0fc6142ed61b51c4fe91a4be8b09c1936`.
+* **New upstream app version:** the refreshed bundle packaged as `26.422.21637`, with new hashed bundle entrypoints including `main-DCRKtMoS.js` and `workspace-root-drop-handler-C1fc5j6q.js`.
 * **CLI bump:** the bundled Linux launcher path now targets `@openai/codex@0.124.0`.
-* **Patch validation:** the refreshed upstream bundle still accepts the opacity, file-manager, and menu patches without rework beyond the menu strategy change above.
+* **Patch validation:** the refreshed upstream bundle required new patch anchors in both the main bundle and the skills bundle, but the Linux opacity, file-manager, skill override, and menu patches still apply after rebinding.
+* **Operational caveat:** `./build.sh --clean` removes build outputs but not `codex_extracted/`. When validating a new upstream DMG or a CI patch failure, delete `codex_extracted/` or build against a fresh DMG path to avoid false-local green runs on stale extracted sources.
 
 ## 7. File Manager Integration (Open Folder in Skills)
 
