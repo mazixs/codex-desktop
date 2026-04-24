@@ -38,6 +38,7 @@ The project remains an unofficial port. The technical approach works, but it is 
 - CI runs workflow linting, shell validation, portable packaging, Arch install/launch smoke tests, and Debian install/launch smoke tests on GitHub Actions
 - the built-in file manager works on Linux and can open both file locations and individual files
 - voice input works on Linux
+- the Linux build forces opaque window backgrounds and suppresses the upstream native menu bar
 - the current Linux build avoids the graphical glitches common in other unofficial Codex Desktop Linux solutions
 
 ⚠️ **Fragile by design**
@@ -173,6 +174,7 @@ codex-desktop/
 - [docs/TECHNICAL_DETAILS.md](docs/TECHNICAL_DETAILS.md) — deeper reverse-engineering notes
 - [docs/REPOSITORY_AUDIT.md](docs/REPOSITORY_AUDIT.md) — technical audit of fragility surface
 - [docs/CI_CD.md](docs/CI_CD.md) — pipeline contract, versioning strategy, artifact contract
+- [docs/MAINTENANCE_HISTORY.md](docs/MAINTENANCE_HISTORY.md) — recent upstream DMG / patch maintenance timeline
 
 ## Limitations
 

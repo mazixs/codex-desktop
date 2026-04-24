@@ -540,12 +540,29 @@ patch_main_js() {
         'backgroundMaterial:"none"'  'backgroundMaterial:null' \
         'backgroundMaterial:`none`'  'backgroundMaterial:null'
 
-    # Hide the native application menu by default on Linux. Electron will still
-    # reveal it when the user presses Alt, matching standard Linux desktop behavior.
+    # Keep the native menu auto-hidden only on Windows.
     # shellcheck disable=SC2016
     replace_first_available "$main_bundle" 1 \
         '...process.platform===`win32`?{autoHideMenuBar:!0}:{}' \
-        '...process.platform===`win32`||process.platform===`linux`?{autoHideMenuBar:!0}:{}'
+        '...process.platform===`win32`?{autoHideMenuBar:!0}:{}' \
+        '...process.platform===`win32`||process.platform===`linux`?{autoHideMenuBar:!0}:{}' \
+        '...process.platform===`win32`?{autoHideMenuBar:!0}:{}'
+
+    # Remove the native application menu entirely on Linux so it never appears.
+    # shellcheck disable=SC2016
+    replace_first_available "$main_bundle" 1 \
+        'process.platform===`win32`&&O.removeMenu(),O.on(`closed`,()=>{j?.()})' \
+        '(process.platform===`win32`||process.platform===`linux`)&&O.removeMenu(),O.on(`closed`,()=>{j?.()})' \
+        'process.platform===`win32`&&O.removeMenu(),process.platform===`linux`&&(O.setMenuBarVisibility(!1),O.webContents.on(`before-input-event`,(e,t)=>{t.type===`keyDown`&&t.alt&&t.shift&&!t.control&&!t.meta&&typeof t.key===`string`&&t.key.toLowerCase()===`k`&&(e.preventDefault(),O.setMenuBarVisibility(!O.isMenuBarVisible()))})),O.on(`closed`,()=>{j?.()})' \
+        '(process.platform===`win32`||process.platform===`linux`)&&O.removeMenu(),O.on(`closed`,()=>{j?.()})'
+
+    # Upstream refreshes the global application menu after startup, which reattaches
+    # the native menubar on Linux even if the window menu was removed earlier.
+    # Force a null application menu on Linux while preserving default behavior elsewhere.
+    # shellcheck disable=SC2016
+    replace_first_available "$main_bundle" 1 \
+        't.Menu.setApplicationMenu(Le),Qp(m)' \
+        'process.platform===`linux`?(t.Menu.setApplicationMenu(null),Qp(m)):(t.Menu.setApplicationMenu(Le),Qp(m))'
 
     # =====================================================================
     # --- Add Linux file manager support ---

@@ -34,20 +34,31 @@ Minified JavaScript requires exact structural `sed` replacements:
 
 * **The Bug:** macOS uses `vibrancy` and `backgroundMaterial` for frosted glass window effects. The default `backgroundColor` is set to `#00000000` (fully transparent) in a minified variable (`Sy`, `So`, `Hf`, etc. depending on upstream build), which is invisible behind vibrancy on macOS but renders as a transparent window on Linux.
 
-* **The Fix (7 patches in main bundle):**
+* **The Fix (9 patches in main bundle):**
   1. `Sy=\`#00000000\`` / `So="#00000000"` / `Hf=\`#00000000\`` → opaque dark color — replace transparent window background with an opaque dark fallback. The variable name changes between upstream builds, but it is the default `backgroundColor` for all `BrowserWindow` instances.
   2. `transparent:!0` → `transparent:!1` — disable transparent frameless windows (2 hotkey overlay windows).
   3. `vibrancy:\`menu\`` → `vibrancy:null` — neutralize macOS vibrancy (3 window types: primary, secondary, HUD).
   4. `visualEffectState:\`active\`` → `visualEffectState:null` — neutralize macOS visual effect (HUD window).
   5. `backgroundMaterial:\`mica\`` → `backgroundMaterial:null` — neutralize Windows Mica acrylic.
   6. `backgroundMaterial:\`none\`` → `backgroundMaterial:null` — neutralize Windows opaque background material.
-  7. Enable `autoHideMenuBar` for Linux so the native `File/Edit/View/Window/Help` bar is hidden by default and revealed with `Alt`.
+  7. Keep `autoHideMenuBar` Windows-only so Linux does not inherit Electron's `Alt`-to-show behavior.
+  8. Extend `removeMenu()` from Windows to Linux for each `BrowserWindow`.
+  9. Patch the global application-menu refresh path to call `Menu.setApplicationMenu(null)` on Linux, preventing the upstream menu manager from restoring `File/Edit/View/Window/Help` after startup.
 
 * **Key functions patched:**
   - `ap({platform, appearance, opaqueWindowsEnabled, prefersDarkColors})` — returns `{backgroundColor, backgroundMaterial}` per window type. After patching, always returns `{backgroundColor: '#1e1e1e', backgroundMaterial: null}` on Linux.
   - `op({appearance, opaqueWindowsEnabled, platform})` — returns window chrome options (`vibrancy`, `transparent`, `titleBarStyle`). After patching, all macOS/Windows-specific properties are nullified.
+  - The application-menu refresh path now keeps upstream behavior on macOS/Windows but uses `Menu.setApplicationMenu(null)` on Linux so the menu bar stays absent even after startup refreshes.
 
 * **Launch flags:** `start.sh` injects `--disable-gpu-compositing` and Wayland Ozone platform flags when appropriate.
+
+## 8. Recent Upstream Maintenance
+
+The current maintenance baseline also includes:
+
+* **Fresh upstream DMG refresh:** the repository-local `Codex.dmg` was replaced after confirming a SHA-256 change from `65d3114117f1f03157e2968358e7c1bbaca48f3fe4a9bc9b71fc6f719e9702eb` to `590b5b986c26c10efa82d605b677eea0fc6142ed61b51c4fe91a4be8b09c1936`.
+* **CLI bump:** the bundled Linux launcher path now targets `@openai/codex@0.124.0`.
+* **Patch validation:** the refreshed upstream bundle still accepts the opacity, file-manager, and menu patches without rework beyond the menu strategy change above.
 
 ## 7. File Manager Integration (Open Folder in Skills)
 
