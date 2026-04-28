@@ -4,7 +4,7 @@
   <h1>OpenAI Codex Desktop for Linux</h1>
 
   <p>
-    <b>Native Linux packaging and release tooling for the official macOS Codex Desktop app.</b>
+    <b>A ready-to-install Linux desktop build of the official Codex Desktop app, with Linux-native runtime packaging and compositor-safe UI patches.</b>
   </p>
 
   <p>
@@ -19,7 +19,17 @@
 
 ## Overview
 
-This repository adapts the official macOS Codex Desktop distribution to Linux by:
+This repository ships a prebuilt Linux distribution of Codex Desktop. It is not just a patch collection or a helper script that asks you to repair the macOS app locally: release assets contain the upstream Codex Desktop bundle, a Linux Electron runtime, rebuilt native modules, the Linux Codex CLI, desktop integration files, and the patch layer needed for the app to behave like a normal Linux desktop application.
+
+The current main-branch baseline is:
+
+- upstream Codex Desktop: `26.422.62136`
+- Linux Codex CLI: `@openai/codex 0.125.0`
+- Electron runtime: `41.3.0`
+
+Each release preserves the exact upstream version in `build-metadata.env`, so installed packages and release artifacts can be traced back to the DMG they were built from.
+
+Under the hood, the build pipeline adapts the official macOS Codex Desktop distribution by:
 
 - downloading the upstream `Codex.dmg`
 - extracting `app.asar`
@@ -27,7 +37,30 @@ This repository adapts the official macOS Codex Desktop distribution to Linux by
 - patching Linux-incompatible Electron code paths
 - packaging a portable tarball, an Arch Linux package, and a Debian package
 
-The project remains an unofficial port. The technical approach works, but it is inherently coupled to upstream bundle internals and should be treated as a maintained compatibility layer, not a stable public API.
+The project remains an unofficial port. The important difference is the deliverable: users download and install a complete Linux app, while maintainers keep the upstream refresh, native rebuild, patching, packaging, and CI smoke tests inside this repository.
+
+## Why This Build
+
+Codex Desktop currently ships upstream as a macOS desktop application. This project turns that upstream app into Linux release artifacts that are practical to consume:
+
+- **Ready-to-install artifacts**: portable archive, Arch package, and Debian package are built from the same checked artifact contract.
+- **Bundled runtime**: the app includes the Electron runtime, Linux-native native modules, launcher, icons, packaged skill overrides, and metadata.
+- **Upstream included**: the official Codex Desktop app bundle is downloaded during the build and carried into the release artifact with version metadata.
+- **Linux-first UX fixes**: transparency, theme, menu, file-manager, editor-detection, voice-input, and skills-path issues are patched before packaging.
+- **CI-backed releases**: GitHub Actions validates workflows, packages the app, installs the distro packages, and smoke-launches them under `xvfb`.
+
+## Linux Adaptation Highlights
+
+The Linux patch layer focuses on making the app feel native and predictable after installation:
+
+- **Opaque Linux windows**: upstream transparent, vibrancy, Mica, and visual-effect settings are disabled for Linux. This prevents invisible or washed-out windows on Linux compositors.
+- **Working light and dark themes**: Linux uses explicit opaque backgrounds for both themes, including the left sidebar, so the light theme no longer becomes dim or low-contrast.
+- **Clean application chrome**: the upstream native menu bar is suppressed on Linux and kept suppressed when the app refreshes its menu internally.
+- **Linux file manager support**: file and folder actions use `xdg-open` / Electron `shell.openPath`, and individual file paths open their parent directory correctly.
+- **Project opening from Linux editors**: the app can offer installed Linux tools such as VS Code, VS Code Insiders, Cursor, Windsurf, Zed, Sublime Text, Android Studio, and JetBrains IDEs when opening a project.
+- **Codex backend on Linux**: the packaged launcher wires the Electron frontend to the Linux `@openai/codex` CLI instead of the macOS-only upstream backend binary.
+- **Packaged skills layout**: bundled skill overrides are copied into the Linux artifact and resolved from packaged paths, so the app can find them after installation.
+- **Voice input**: the Linux build preserves the upstream voice-input path and verifies that it launches in the packaged app.
 
 ## Current Status
 
@@ -37,9 +70,11 @@ The project remains an unofficial port. The technical approach works, but it is 
 - release notes are generated automatically from commit history between tags
 - CI runs workflow linting, shell validation, portable packaging, Arch install/launch smoke tests, and Debian install/launch smoke tests on GitHub Actions
 - the built-in file manager works on Linux and can open both file locations and individual files
+- common Linux editors and IDEs are offered for opening projects when their CLIs are installed
+- light and dark themes are both adapted for opaque Linux rendering
 - voice input works on Linux
-- the Linux build forces opaque window backgrounds and suppresses the upstream native menu bar
-- the current Linux build avoids the graphical glitches common in other unofficial Codex Desktop Linux solutions
+- the Linux build suppresses the upstream native menu bar
+- the current Linux build avoids the transparent-window and washed-out-theme glitches common in rough macOS-to-Linux ports
 
 ⚠️ **Fragile by design**
 
@@ -63,6 +98,8 @@ Every asset is accompanied by a `.sha256` checksum. Verify before installing:
 ```bash
 sha256sum -c codex-desktop-native-<version>-<platform>.<ext>.sha256
 ```
+
+The release assets are the intended user-facing product. You should not need to download a DMG, run patch scripts manually, or assemble Electron pieces yourself.
 
 ## Local Build
 
@@ -126,6 +163,8 @@ After the tag is pushed, GitHub Actions:
 4. generates release notes from commit history since the previous tag
 5. validates the asset contract (names, checksums, metadata, release notes)
 6. creates or updates the GitHub Release and uploads every asset plus its `.sha256`
+
+Release notes are also where the current upstream Codex Desktop version and Linux packaging changes are surfaced for users. In practice, each release answers two questions: which upstream app was packaged, and what Linux adaptation changed in this build.
 
 The CI/CD details live in [docs/CI_CD.md](docs/CI_CD.md).
 
