@@ -50,6 +50,21 @@ assert_package_entry() {
     fi
 }
 
+assert_desktop_entry_contract() {
+    local extract_dir=""
+    local desktop_file=""
+
+    extract_dir="$(mktemp -d "${TMPDIR:-/tmp}/codex-deb-package-desktop.XXXXXX")"
+    dpkg-deb -x "$PACKAGE_FILE" "$extract_dir"
+    desktop_file="$extract_dir/usr/share/applications/codex-desktop.desktop"
+
+    require_file "$desktop_file"
+    assert_file_contains "$desktop_file" "Exec=codex-desktop %u" "Debian desktop entry does not accept URL arguments"
+    assert_file_contains "$desktop_file" "MimeType=x-scheme-handler/codex;x-scheme-handler/codex-browser-sidebar;" "Debian desktop entry does not register Codex URL schemes"
+
+    rm -rf "$extract_dir"
+}
+
 install_package() {
     if [ "${EUID}" -eq 0 ]; then
         dpkg -i "$PACKAGE_FILE"
@@ -101,6 +116,7 @@ main() {
     assert_package_entry "$listing_file" "./usr/share/pixmaps/codex-desktop.png"
     assert_package_entry "$listing_file" "./opt/codex-desktop/node_modules/electron/dist/electron"
     assert_package_entry "$listing_file" "./opt/codex-desktop/dist/.vite/build/bootstrap.js"
+    assert_desktop_entry_contract
 
     install_package
     run_smoke_test

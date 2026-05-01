@@ -56,6 +56,18 @@ assert_package_entry() {
     fi
 }
 
+assert_desktop_entry_contract() {
+    local desktop_entry=""
+
+    desktop_entry="$(tar --zstd -xOf "$PACKAGE_FILE" usr/share/applications/codex-desktop.desktop)"
+    if ! grep -Fq "Exec=codex-desktop %u" <<< "$desktop_entry"; then
+        ci_fail "Arch desktop entry does not accept URL arguments"
+    fi
+    if ! grep -Fq "MimeType=x-scheme-handler/codex;x-scheme-handler/codex-browser-sidebar;" <<< "$desktop_entry"; then
+        ci_fail "Arch desktop entry does not register Codex URL schemes"
+    fi
+}
+
 run_smoke_test() {
     local launch_command=""
     local smoke_log="/tmp/codex-desktop-smoke.log"
@@ -96,6 +108,7 @@ main() {
     assert_package_entry "$listing_file" "usr/share/icons/hicolor/256x256/apps/codex-desktop.png"
     assert_package_entry "$listing_file" "opt/codex-desktop/node_modules/electron/dist/electron"
     assert_package_entry "$listing_file" "opt/codex-desktop/dist/.vite/build/bootstrap.js"
+    assert_desktop_entry_contract
 
     pacman -U --noconfirm "$PACKAGE_FILE"
     run_smoke_test

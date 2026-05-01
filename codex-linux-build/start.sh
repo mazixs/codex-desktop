@@ -76,6 +76,40 @@ free_webview_port() {
     fi
 }
 
+desktop_entry_exists() {
+    local desktop_name="${APP_DESKTOP_ID}.desktop"
+    local data_home="${XDG_DATA_HOME:-${HOME:-}/.local/share}"
+    local data_dirs="${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+    local data_dir=""
+    local -a data_dirs_array=()
+
+    [ -f "$data_home/applications/$desktop_name" ] && return 0
+
+    IFS=: read -r -a data_dirs_array <<< "$data_dirs"
+    for data_dir in "${data_dirs_array[@]}"; do
+        [ -f "$data_dir/applications/$desktop_name" ] && return 0
+    done
+
+    return 1
+}
+
+register_url_scheme_handlers() {
+    local desktop_name="${APP_DESKTOP_ID}.desktop"
+    local scheme=""
+    local mime_type=""
+    local current_handler=""
+
+    command -v xdg-mime >/dev/null 2>&1 || return 0
+    desktop_entry_exists || return 0
+
+    for scheme in codex codex-browser-sidebar; do
+        mime_type="x-scheme-handler/$scheme"
+        current_handler="$(xdg-mime query default "$mime_type" 2>/dev/null || true)"
+        [ "$current_handler" = "$desktop_name" ] && continue
+        xdg-mime default "$desktop_name" "$mime_type" >/dev/null 2>&1 || true
+    done
+}
+
 resolve_codex_cli() {
     local local_codex="$SCRIPT_DIR/node_modules/.bin/codex"
     local packaged_codex_js="$SCRIPT_DIR/node_modules/@openai/codex/bin/codex.js"
@@ -150,6 +184,7 @@ if [ "${XDG_SESSION_TYPE:-}" = "wayland" ]; then
 fi
 
 export CHROME_DESKTOP="${APP_DESKTOP_ID}.desktop"
+register_url_scheme_handlers
 
 if [[ "$ELECTRON_BIN_RESOLVED" == node:* ]]; then
     exec node "${ELECTRON_BIN_RESOLVED#node:}" \

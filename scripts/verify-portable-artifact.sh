@@ -89,6 +89,8 @@ main() {
     require_file "$extract_root/start.sh"
     require_file "$extract_root/node_modules/electron/dist/electron"
     require_file "$extract_root/dist/skills/.curated/playwright/SKILL.md"
+    assert_file_contains "$extract_root/start.sh" "register_url_scheme_handlers" "Portable launcher is missing URL scheme registration"
+    assert_file_contains "$extract_root/start.sh" "xdg-mime default" "Portable launcher is missing xdg-mime URL scheme registration"
 
     main_entry_path="$(node -e 'const manifest=require(process.argv[1]); if (!manifest.main) process.exit(1); process.stdout.write(process.argv[2] + "/" + manifest.main);' "$extract_root/dist/package.json" "$extract_root/dist")"
     require_file "$main_entry_path"
