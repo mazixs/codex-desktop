@@ -2,6 +2,57 @@
 
 This document records recent repository maintenance work that changed the Linux adaptation layer.
 
+## 2026-05-03
+
+### Upstream Refresh
+
+- Refreshed against the upstream DMG dated 2026-05-01 (314 MB).
+- Resolved upstream application version: `26.429.30905`.
+- New hashed main entrypoint: `main-DlFGMsC6.js`.
+
+### Patch Strategy Migration
+
+Migrated the main-bundle patches from exact string matching to regex-based detection so they survive upstream minified-name drift:
+- **Opaque background** — detects the transparent color variable, dark/light color variables, and the background-material function signature dynamically, then injects a Linux-specific opaque branch.
+- **File manager** — detects the win32 `open` handler and appends a Linux `xdg-open` entry.
+- **Application menu** — detects `Menu.setApplicationMenu(...)` calls and nullifies the menu on Linux.
+- **RemoveMenu** — expands win32-only `removeMenu()` guards to include Linux.
+- Non-critical editor/IDE patches remain optional (warn-only on mismatch).
+
+### Browser Use Plugin Support
+
+- Added copying of `plugins/openai-bundled` resources from the upstream DMG into the build output.
+- Filters the bundled `marketplace.json` to expose only the `browser-use` plugin.
+- The launcher (`start.sh`) exports `CODEX_ELECTRON_RESOURCES_PATH`, `CODEX_BROWSER_USE_NODE_PATH`, and `CODEX_NODE_REPL_PATH` with a fallback to the system `node` when the upstream Mach-O binaries cannot be used.
+
+### Browser Annotation Stabilization
+
+- Patched `.vite/build/comment-preload.js` to use stored anchor geometry instead of live DOM lookup during screenshot mode.
+- Patched the same bundle to render only the selected marker while in screenshot mode.
+
+### Launcher Updates
+
+- Reworked Wayland ozone platform selection:
+  - Wayland session with `DISPLAY` set → `--ozone-platform=x11` (XWayland) for correct popup positioning.
+  - Pure Wayland session without `DISPLAY` → native Wayland via `--ozone-platform=wayland`.
+  - Respects user-supplied `--ozone-platform*` flags.
+
+### Smoke Test Expansion
+
+- Added regression smoke tests covering:
+  - Opaque background Linux branch
+  - File manager Linux entry
+  - Application menu nullification
+  - Comment-preload screenshot patches
+  - Browser Use plugin resource presence
+
+### Validation
+
+- `rm -rf codex_extracted`
+- `./build.sh --clean`
+- `pnpm run verify`
+- `tests/build-smoke.sh`
+
 ## 2026-04-24
 
 ### Upstream Refresh
