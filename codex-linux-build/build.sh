@@ -294,6 +294,27 @@ prepare_working_copy() {
         copy_required_path "$APP_UNPACKED/native" "$BUILD_DIR"
     fi
 
+    # Copy Browser Use plugin resources from upstream DMG
+    local upstream_resources="$EXTRACTED_DIR/Codex Installer/Codex.app/Contents/Resources"
+    local source_plugin="$upstream_resources/plugins/openai-bundled"
+    local source_marketplace="$source_plugin/.agents/plugins/marketplace.json"
+    if [ -d "$source_plugin" ] && [ -f "$source_marketplace" ]; then
+        log "Copying Browser Use plugin resources..."
+        mkdir -p "$BUILD_DIR/plugins/openai-bundled/plugins" "$BUILD_DIR/plugins/openai-bundled/.agents/plugins"
+        cp -R "$source_plugin/plugins/browser-use" "$BUILD_DIR/plugins/openai-bundled/plugins/browser-use"
+        # Filter marketplace to only browser-use plugin
+        node - "$source_marketplace" "$BUILD_DIR/plugins/openai-bundled/.agents/plugins/marketplace.json" <<'NODE'
+const fs = require("fs");
+const path = require("path");
+const sourcePath = process.argv[2];
+const destPath = process.argv[3];
+const marketplace = JSON.parse(fs.readFileSync(sourcePath, "utf8"));
+marketplace.plugins = (marketplace.plugins || []).filter((p) => p.name === "browser-use");
+fs.mkdirSync(path.dirname(destPath), { recursive: true });
+fs.writeFileSync(destPath, `${JSON.stringify(marketplace, null, 2)}\n`);
+NODE
+    fi
+
     cp "$WEBVIEW_SERVER_TEMPLATE" "$BUILD_DIR/webview-server.js"
     ensure_main_entry_exists "$BUILD_DIR/package.json" "$BUILD_DIR"
 }
@@ -510,27 +531,61 @@ patch_main_js() {
     # =====================================================================
 
     # Fully-transparent background used by macOS vibrancy → opaque dark bg.
-    # Variable name changes across upstream versions (Hf, So, Sy, etc.) so try known aliases.
-    # shellcheck disable=SC2016
-    replace_first_available "$main_bundle" 1 \
-        'XC=`#00000000`' 'XC=`#1e1e1e`' \
-        'ZC=`#00000000`' 'ZC=`#1e1e1e`' \
-        'Sy=`#00000000`' 'Sy=`#1e1e1e`' \
-        'So="#00000000"' 'So="#1e1e1e"' \
-        'cM=`#00000000`' 'cM=`#1e1e1e`' \
-        'Hf=`#00000000`' 'Hf=`#1e1e1e`'
-
     # Keep Linux primary windows opaque, but let light theme use the upstream
     # light background instead of the dark fallback. Otherwise the left sidebar
     # becomes visibly muted in light mode.
+    # Upstream minified names drift every build, so we use regex matching instead
+    # of brittle exact string replacements.
     # shellcheck disable=SC2016
-    replace_first_available "$main_bundle" 1 \
-        'function yw({platform:e,appearance:t,opaqueWindowsEnabled:n,prefersDarkColors:r}){return e===`win32`&&!gw(t)?n?{backgroundColor:r?ZC:QC,backgroundMaterial:`none`}:{backgroundColor:XC,backgroundMaterial:`mica`}:{backgroundColor:XC,backgroundMaterial:null}}' \
-        'function yw({platform:e,appearance:t,opaqueWindowsEnabled:n,prefersDarkColors:r}){return e===`win32`&&!gw(t)?n?{backgroundColor:r?ZC:QC,backgroundMaterial:`none`}:{backgroundColor:XC,backgroundMaterial:`mica`}:e===`linux`&&!gw(t)?{backgroundColor:r?iw:QC,backgroundMaterial:null}:{backgroundColor:XC,backgroundMaterial:null}}' \
-        'function bw({platform:e,appearance:t,opaqueWindowsEnabled:n,prefersDarkColors:r}){return e===`win32`&&!_w(t)?n?{backgroundColor:r?QC:$C,backgroundMaterial:`none`}:{backgroundColor:ZC,backgroundMaterial:`mica`}:{backgroundColor:ZC,backgroundMaterial:null}}' \
-        'function bw({platform:e,appearance:t,opaqueWindowsEnabled:n,prefersDarkColors:r}){return e===`win32`&&!_w(t)?n?{backgroundColor:r?QC:$C,backgroundMaterial:`none`}:{backgroundColor:ZC,backgroundMaterial:`mica`}:e===`linux`&&!_w(t)?{backgroundColor:r?aw:$C,backgroundMaterial:null}:{backgroundColor:ZC,backgroundMaterial:null}}' \
-        'function jM({platform:e,appearance:t,opaqueWindowsEnabled:n,prefersDarkColors:r}){return e===`win32`&&!OM(t)?n?{backgroundColor:r?lM:uM,backgroundMaterial:`none`}:{backgroundColor:cM,backgroundMaterial:`mica`}:{backgroundColor:cM,backgroundMaterial:null}}' \
-        'function jM({platform:e,appearance:t,opaqueWindowsEnabled:n,prefersDarkColors:r}){return e===`win32`&&!OM(t)?n?{backgroundColor:r?lM:uM,backgroundMaterial:`none`}:{backgroundColor:cM,backgroundMaterial:`mica`}:e===`linux`&&!OM(t)?{backgroundColor:r?lM:uM,backgroundMaterial:null}:{backgroundColor:cM,backgroundMaterial:null}}'
+    python3 - "$main_bundle" <<'PY'
+import re, sys
+
+path = sys.argv[1]
+content = open(path, "r").read()
+
+# Already patched?
+if re.search(r'===`linux`&&![A-Za-z_$][\w$]*\(', content):
+    sys.exit(0)
+
+# Find transparent/dark/light color variables (ordered triplet near the function)
+color_match = re.search(
+    r'\b([A-Za-z_$][\w$]*)=`#00000000`,([A-Za-z_$][\w$]*)=`#[0-9a-fA-F]{6}`,([A-Za-z_$][\w$]*)=`#[0-9a-fA-F]{6}`',
+    content
+)
+if not color_match:
+    print("WARN: Could not find transparent/dark/light color vars -- skipping opaque background patch", file=sys.stderr)
+    sys.exit(0)
+
+transparent_var, dark_var, light_var = color_match.groups()
+
+# Replace transparent var with opaque dark fallback
+old_transparent = f"{transparent_var}=`#00000000`"
+new_transparent = f"{transparent_var}=`#1e1e1e`"
+if old_transparent in content:
+    content = content.replace(old_transparent, new_transparent)
+
+# Find BrowserWindow background function signature
+func_match = re.search(
+    r'function\s+([A-Za-z_$][\w$]*)\(\{platform:([A-Za-z_$][\w$]*),appearance:([A-Za-z_$][\w$]*),opaqueWindowsEnabled:[A-Za-z_$][\w$]*,prefersDarkColors:([A-Za-z_$][\w$]*)\}\)\{return\s*\2===`win32`&&!([A-Za-z_$][\w$]*)\(\3\)',
+    content
+)
+if not func_match:
+    print("WARN: Could not find BrowserWindow background function signature -- skipping opaque background patch", file=sys.stderr)
+    sys.exit(0)
+
+func_name, platform_param, appearance_param, dark_colors_param, transparent_predicate = func_match.groups()
+
+# Find the mica→null fallback branch and inject Linux opaque variant
+bg_needle = f"backgroundMaterial:`mica`}}:{{backgroundColor:{transparent_var},backgroundMaterial:null}}}}"
+bg_replacement = f"backgroundMaterial:`mica`}}:{platform_param}===`linux`&&!{transparent_predicate}({appearance_param})?{{backgroundColor:{dark_colors_param}?{dark_var}:{light_var},backgroundMaterial:null}}:{{backgroundColor:{transparent_var},backgroundMaterial:null}}}}"
+
+if bg_needle not in content:
+    print("WARN: Could not find backgroundMaterial needle -- skipping opaque background patch", file=sys.stderr)
+    sys.exit(0)
+
+content = content.replace(bg_needle, bg_replacement)
+open(path, "w").write(content)
+PY
 
     replace_literal "$main_bundle" 'transparent:!0' 'transparent:!1'
 
@@ -557,37 +612,62 @@ patch_main_js() {
 
     # Keep the native menu auto-hidden only on Windows.
     # shellcheck disable=SC2016
-    replace_first_available "$main_bundle" 1 \
+    replace_first_available "$main_bundle" 0 \
         '...process.platform===`win32`?{autoHideMenuBar:!0}:{}' \
         '...process.platform===`win32`?{autoHideMenuBar:!0}:{}' \
         '...process.platform===`win32`||process.platform===`linux`?{autoHideMenuBar:!0}:{}' \
         '...process.platform===`win32`?{autoHideMenuBar:!0}:{}'
 
     # Remove the native application menu entirely on Linux so it never appears.
+    # Upstream minified names drift every build, so we use regex matching.
     # shellcheck disable=SC2016
-    replace_first_available "$main_bundle" 1 \
-        'process.platform===`win32`&&k.removeMenu(),k.on(`closed`,()=>{M?.()})' \
-        '(process.platform===`win32`||process.platform===`linux`)&&k.removeMenu(),k.on(`closed`,()=>{M?.()})' \
-        'process.platform===`win32`&&O.removeMenu(),O.on(`closed`,()=>{j?.()})' \
-        '(process.platform===`win32`||process.platform===`linux`)&&O.removeMenu(),O.on(`closed`,()=>{j?.()})' \
-        'process.platform===`win32`&&j.removeMenu(),j.on(`closed`,()=>{P?.()})' \
-        '(process.platform===`win32`||process.platform===`linux`)&&j.removeMenu(),j.on(`closed`,()=>{P?.()})' \
-        'process.platform===`win32`&&O.removeMenu(),process.platform===`linux`&&(O.setMenuBarVisibility(!1),O.webContents.on(`before-input-event`,(e,t)=>{t.type===`keyDown`&&t.alt&&t.shift&&!t.control&&!t.meta&&typeof t.key===`string`&&t.key.toLowerCase()===`k`&&(e.preventDefault(),O.setMenuBarVisibility(!O.isMenuBarVisible()))})),O.on(`closed`,()=>{j?.()})' \
-        '(process.platform===`win32`||process.platform===`linux`)&&O.removeMenu(),O.on(`closed`,()=>{j?.()})'
+    python3 - "$main_bundle" <<'PY'
+import re, sys
+
+path = sys.argv[1]
+content = open(path, "r").read()
+
+# Replace all win32-only removeMenu() calls with win32||linux
+content = re.sub(
+    r'process\.platform===`win32`&&([A-Za-z_$][\w$]*)\.removeMenu\(\)',
+    r'(process.platform===`win32`||process.platform===`linux`)&&\1.removeMenu()',
+    content
+)
+
+open(path, "w").write(content)
+PY
 
     # Upstream refreshes the global application menu after startup, which reattaches
     # the native menubar on Linux even if the window menu was removed earlier.
     # Force a null application menu on Linux while preserving default behavior elsewhere.
+    # Upstream minified names drift every build, so we use regex matching instead
+    # of brittle exact string replacements.
     # shellcheck disable=SC2016
-    replace_first_available "$main_bundle" 1 \
-        'n.Menu.setApplicationMenu(Ge),H_(h)' \
-        'process.platform===`linux`?(n.Menu.setApplicationMenu(null),H_(h)):(n.Menu.setApplicationMenu(Ge),H_(h))' \
-        'n.Menu.setApplicationMenu(Ge),U_(h)' \
-        'process.platform===`linux`?(n.Menu.setApplicationMenu(null),U_(h)):(n.Menu.setApplicationMenu(Ge),U_(h))' \
-        't.Menu.setApplicationMenu(Le),Qp(m)' \
-        'process.platform===`linux`?(t.Menu.setApplicationMenu(null),Qp(m)):(t.Menu.setApplicationMenu(Le),Qp(m))' \
-        'n.Menu.setApplicationMenu(Ke),rT(h)' \
-        'process.platform===`linux`?(n.Menu.setApplicationMenu(null),rT(h)):(n.Menu.setApplicationMenu(Ke),rT(h))'
+    python3 - "$main_bundle" <<'PY'
+import re, sys
+
+path = sys.argv[1]
+content = open(path, "r").read()
+
+if 'process.platform===`linux`?(n.Menu.setApplicationMenu(null)' in content:
+    sys.exit(0)
+
+match = re.search(r'([A-Za-z_$][\w$]*)\.Menu\.setApplicationMenu\(([A-Za-z_$][\w$]*)\),([A-Za-z_$][\w$]*)\(([^)]+)\)', content)
+if not match:
+    print("WARN: Could not find setApplicationMenu call -- skipping app menu patch", file=sys.stderr)
+    sys.exit(0)
+
+ns, menu_var, func_name, func_arg = match.groups()
+needle = f"{ns}.Menu.setApplicationMenu({menu_var}),{func_name}({func_arg})"
+replacement = f"process.platform===`linux`?({ns}.Menu.setApplicationMenu(null),{func_name}({func_arg})):({ns}.Menu.setApplicationMenu({menu_var}),{func_name}({func_arg}))"
+
+if needle not in content:
+    print("WARN: Could not find setApplicationMenu needle -- skipping app menu patch", file=sys.stderr)
+    sys.exit(0)
+
+content = content.replace(needle, replacement)
+open(path, "w").write(content)
+PY
 
     # =====================================================================
     # --- Add Linux file manager support ---
@@ -595,31 +675,37 @@ patch_main_js() {
     # On Linux the "Open folder" button in Skills silently fails because
     # there is no linux entry, so the target is never registered.
     # Add linux support using xdg-open via Electron shell.openPath().
-    # Variable/function names change across upstream versions, so try both.
+    # Upstream minified names drift every build, so we use regex matching.
     # =====================================================================
-
     # shellcheck disable=SC2016
-    replace_first_available "$main_bundle" 1 \
-        'var lu=jl({id:`fileManager`,label:`Finder`,icon:`apps/finder.png`,kind:`fileManager`,darwin:{detect:()=>`open`,args:e=>il(e)},win32:{label:`File Explorer`,icon:`apps/file-explorer.png`,detect:uu,args:e=>il(e),open:async({path:e})=>du(e)}});' \
-        'var lu=jl({id:`fileManager`,label:`Finder`,icon:`apps/finder.png`,kind:`fileManager`,darwin:{detect:()=>`open`,args:e=>il(e)},win32:{label:`File Explorer`,icon:`apps/file-explorer.png`,detect:uu,args:e=>il(e),open:async({path:e})=>du(e)},linux:{label:`File Manager`,detect:()=>`xdg-open`,args:e=>[e],open:async({path:e})=>{let t=fu(e);if(t&&(0,o.statSync)(t).isFile()){let e=(0,i.dirname)(t),r=await n.shell.openPath(e);if(r)throw Error(r);return}let r=await n.shell.openPath(t??e);if(r)throw Error(r)}}});' \
-        'var ka=$i({id:`fileManager`,label:`Finder`,icon:`apps/finder.png`,kind:`fileManager`,darwin:{detect:()=>`open`,args:e=>Ti(e)},win32:{label:`File Explorer`,icon:`apps/file-explorer.png`,detect:Aa,args:e=>Ti(e),open:async({path:e})=>ja(e)}});' \
-        'var ka=$i({id:`fileManager`,label:`Finder`,icon:`apps/finder.png`,kind:`fileManager`,darwin:{detect:()=>`open`,args:e=>Ti(e)},win32:{label:`File Explorer`,icon:`apps/file-explorer.png`,detect:Aa,args:e=>Ti(e),open:async({path:e})=>ja(e)},linux:{label:`File Manager`,detect:()=>`xdg-open`,args:e=>[e],open:async({path:e})=>{let n=Ma(e);if(n&&(0,a.statSync)(n).isFile()){let e=(0,r.dirname)(n),i=await t.shell.openPath(e);if(i)throw Error(i);return}let i=await t.shell.openPath(n??e);if(i)throw Error(i)}}});' \
-        'const l_=Ze({id:"fileManager",label:"Finder",icon:"apps/finder.png",kind:"fileManager",darwin:{detect:()=>"open",args:r=>Qc(r)},win32:{label:"File Explorer",icon:"apps/file-explorer.png",detect:u_,args:r=>Qc(r),open:async({path:r})=>d_(r)}})' \
-        'const l_=Ze({id:"fileManager",label:"Finder",icon:"apps/finder.png",kind:"fileManager",darwin:{detect:()=>"open",args:r=>Qc(r)},win32:{label:"File Explorer",icon:"apps/file-explorer.png",detect:u_,args:r=>Qc(r),open:async({path:r})=>d_(r)},linux:{label:"File Manager",detect:()=>H("xdg-open"),args:r=>[r],open:async({path:r})=>{let e=r;try{k.statSync(e).isFile()&&(e=q.dirname(e))}catch{}const t=await x.shell.openPath(e);if(t)throw Error(t)}}})' \
-        'const Xa=ea({id:`fileManager`,label:`Finder`,icon:`apps/finder.png`,kind:`fileManager`,darwin:{detect:()=>`open`,args:e=>pa(e)},win32:{label:`File Explorer`,icon:`apps/file-explorer.png`,detect:Za,args:e=>pa(e),open:async({path:e})=>Qa(e)}})' \
-        'const Xa=ea({id:`fileManager`,label:`Finder`,icon:`apps/finder.png`,kind:`fileManager`,darwin:{detect:()=>`open`,args:e=>pa(e)},win32:{label:`File Explorer`,icon:`apps/file-explorer.png`,detect:Za,args:e=>pa(e),open:async({path:e})=>Qa(e)},linux:{label:`File Manager`,detect:()=>B(`xdg-open`),args:e=>[e],open:async({path:e})=>{let n=e;try{(0,a.statSync)(n).isFile()&&(n=(0,r.dirname)(n))}catch{}let i=await t.shell.openPath(n);if(i)throw Error(i)}}})' \
-        'var Cs=Go({id:`fileManager`,label:`Finder`,icon:`apps/finder.png`,kind:`fileManager`,darwin:{detect:()=>`open`,args:e=>vo(e)},win32:{label:`File Explorer`,icon:`apps/file-explorer.png`,detect:ws,args:e=>vo(e),open:async({path:e})=>Ts(e)}});' \
-        'var Cs=Go({id:`fileManager`,label:`Finder`,icon:`apps/finder.png`,kind:`fileManager`,darwin:{detect:()=>`open`,args:e=>vo(e)},win32:{label:`File Explorer`,icon:`apps/file-explorer.png`,detect:ws,args:e=>vo(e),open:async({path:e})=>Ts(e)},linux:{label:`File Manager`,detect:()=>`xdg-open`,args:e=>[e],open:async({path:e})=>{let n=Es(e);if(n&&(0,a.statSync)(n).isFile()){let e=(0,r.dirname)(n),i=await t.shell.openPath(e);if(i)throw Error(i);return}let i=await t.shell.openPath(n??e);if(i)throw Error(i)}}});' \
-        'var uu=Ml({id:`fileManager`,label:`Finder`,icon:`apps/finder.png`,kind:`fileManager`,darwin:{detect:()=>`open`,args:e=>il(e)},win32:{label:`File Explorer`,icon:`apps/file-explorer.png`,detect:du,args:e=>il(e),open:async({path:e})=>fu(e)}});' \
-        'var uu=Ml({id:`fileManager`,label:`Finder`,icon:`apps/finder.png`,kind:`fileManager`,darwin:{detect:()=>`open`,args:e=>il(e)},win32:{label:`File Explorer`,icon:`apps/file-explorer.png`,detect:du,args:e=>il(e),open:async({path:e})=>fu(e)},linux:{label:`File Manager`,detect:()=>`xdg-open`,args:e=>[e],open:async({path:e})=>{let t=pu(e);if(t&&(0,o.statSync)(t).isFile()){let e=(0,i.dirname)(t),r=await n.shell.openPath(e);if(r)throw Error(r);return}let r=await n.shell.openPath(t??e);if(r)throw Error(r)}}});' \
-        'Ph=th({id:`fileManager`,label:`Finder`,icon:`apps/finder.png`,kind:`fileManager`,darwin:{detect:()=>`open`,args:e=>Dm(e)},win32:{label:`File Explorer`,icon:`apps/file-explorer.png`,detect:Fh,args:e=>Dm(e),open:async({path:e})=>Ih(e)}})' \
-        'Ph=th({id:`fileManager`,label:`Finder`,icon:`apps/finder.png`,kind:`fileManager`,darwin:{detect:()=>`open`,args:e=>Dm(e)},win32:{label:`File Explorer`,icon:`apps/file-explorer.png`,detect:Fh,args:e=>Dm(e),open:async({path:e})=>Ih(e)},linux:{label:`File Manager`,detect:()=>`xdg-open`,args:e=>[e],open:async({path:e})=>{let t=Lh(e);if(t&&(0,o.statSync)(t).isFile()){let e=(0,i.dirname)(t),r=await n.shell.openPath(e);if(r)throw Error(r);return}let r=await n.shell.openPath(t??e);if(r)throw Error(r)}}})'
+    python3 - "$main_bundle" <<'PY'
+import re, sys
+
+path = sys.argv[1]
+content = open(path, "r").read()
+
+# Find the win32 fileManager open function
+fm_match = re.search(
+    r'open:async\(\{path:e\}\)=>([A-Za-z_$][\w$]*)\(e\)\}\}\);',
+    content
+)
+if not fm_match:
+    print("WARN: Could not find fileManager open function -- skipping", file=sys.stderr)
+    sys.exit(0)
+
+open_func = fm_match.group(1)
+needle = f"open:async({{path:e}})=>{open_func}(e)}}}});"
+replacement = f"open:async({{path:e}})=>{open_func}(e)}},linux:{{label:`File Manager`,detect:()=>`xdg-open`,args:e=>[e],open:async({{path:e}})=>{open_func}(e)}}}});"
+
+content = content.replace(needle, replacement)
+open(path, "w").write(content)
+PY
 
     # Add Linux editor/IDE targets. Upstream ships icons and target definitions
     # for macOS/Windows, but most editor targets have no linux platform entry
     # and are filtered out before detection runs.
     # shellcheck disable=SC2016
-    replace_first_available "$main_bundle" 1 \
+    replace_first_available "$main_bundle" 0 \
         'function Ml({id:e,label:t,icon:n,darwinDetect:r,win32Detect:i,darwinEnv:a,darwinArgs:o,hidden:s}){return{id:e,platforms:{darwin:r?{label:t,icon:n,kind:`editor`,hidden:s,detect:r,env:a,args:o??Nl,supportsSsh:!0}:void 0,win32:i?{label:t,icon:n,kind:`editor`,hidden:s,detect:i,args:Nl,supportsSsh:!0}:void 0}}}' \
         'function Ml({id:e,label:t,icon:n,darwinDetect:r,win32Detect:i,linuxDetect:a,darwinEnv:o,darwinArgs:s,linuxArgs:c,hidden:l}){return{id:e,platforms:{darwin:r?{label:t,icon:n,kind:`editor`,hidden:l,detect:r,env:o,args:s??Nl,supportsSsh:!0}:void 0,win32:i?{label:t,icon:n,kind:`editor`,hidden:l,detect:i,args:Nl,supportsSsh:!0}:void 0,linux:a?{label:t,icon:n,kind:`editor`,hidden:l,detect:a,args:c??Nl,supportsSsh:!0}:void 0}}}' \
         'function Nl({id:e,label:t,icon:n,darwinDetect:r,win32Detect:i,darwinEnv:a,darwinArgs:o,hidden:s}){return{id:e,platforms:{darwin:r?{label:t,icon:n,kind:`editor`,hidden:s,detect:r,env:a,args:o??Pl,supportsSsh:!0}:void 0,win32:i?{label:t,icon:n,kind:`editor`,hidden:s,detect:i,args:Pl,supportsSsh:!0}:void 0}}}' \
@@ -628,7 +714,7 @@ patch_main_js() {
         'function nh({id:e,label:t,icon:n,darwinDetect:r,win32Detect:i,linuxDetect:a,darwinEnv:o,darwinArgs:s,linuxArgs:c,hidden:l}){return{id:e,platforms:{darwin:r?{label:t,icon:n,kind:`editor`,hidden:l,detect:r,env:o,args:s??rh,supportsSsh:!0}:void 0,win32:i?{label:t,icon:n,kind:`editor`,hidden:l,detect:i,args:rh,supportsSsh:!0}:void 0,linux:a?{label:t,icon:n,kind:`editor`,hidden:l,detect:a,args:c??rh,supportsSsh:!0}:void 0}}}'
 
     # shellcheck disable=SC2016
-    replace_first_available "$main_bundle" 1 \
+    replace_first_available "$main_bundle" 0 \
         'function Pu({id:e,label:t,icon:n,toolboxTarget:r,macExecutable:i,windowsPathCommands:a,windowsInstallDirPrefixes:o,windowsInstallExecutables:s,windowsFallbackPaths:c}){return{id:e,platforms:{darwin:{label:t,icon:n,kind:`editor`,detect:()=>Ru(r,[`/Applications/${t}.app/Contents/MacOS/${i}`],t,i),args:Vu},win32:a&&o&&s?{label:t,icon:n,kind:`editor`,detect:()=>zu({pathCommands:a,installDirPrefixes:o,installExecutables:s,fallbackPaths:c}),args:Vu}:void 0}}}' \
         'function Pu({id:e,label:t,icon:n,toolboxTarget:r,macExecutable:i,windowsPathCommands:a,windowsInstallDirPrefixes:o,windowsInstallExecutables:s,windowsFallbackPaths:c,linuxPathCommands:l}){return{id:e,platforms:{darwin:{label:t,icon:n,kind:`editor`,detect:()=>Ru(r,[`/Applications/${t}.app/Contents/MacOS/${i}`],t,i),args:Vu},win32:a&&o&&s?{label:t,icon:n,kind:`editor`,detect:()=>zu({pathCommands:a,installDirPrefixes:o,installExecutables:s,fallbackPaths:c}),args:Vu}:void 0,linux:l?{label:t,icon:n,kind:`editor`,detect:()=>l.map(e=>U(e)).find(Boolean)??null,args:Vu}:void 0}}}' \
         'function Fu({id:e,label:t,icon:n,toolboxTarget:r,macExecutable:i,windowsPathCommands:a,windowsInstallDirPrefixes:o,windowsInstallExecutables:s,windowsFallbackPaths:c}){return{id:e,platforms:{darwin:{label:t,icon:n,kind:`editor`,detect:()=>zu(r,[`/Applications/${t}.app/Contents/MacOS/${i}`],t,i),args:Hu},win32:a&&o&&s?{label:t,icon:n,kind:`editor`,detect:()=>Bu({pathCommands:a,installDirPrefixes:o,installExecutables:s,fallbackPaths:c}),args:Hu}:void 0}}}' \
@@ -637,7 +723,7 @@ patch_main_js() {
         'function ag({id:e,label:t,icon:n,toolboxTarget:r,macExecutable:i,windowsPathCommands:a,windowsInstallDirPrefixes:o,windowsInstallExecutables:s,windowsFallbackPaths:c,linuxPathCommands:l}){return{id:e,platforms:{darwin:{label:t,icon:n,kind:`editor`,detect:()=>lg(r,[`/Applications/${t}.app/Contents/MacOS/${i}`],t,i),args:fg},win32:a&&o&&s?{label:t,icon:n,kind:`editor`,detect:()=>ug({pathCommands:a,installDirPrefixes:o,installExecutables:s,fallbackPaths:c}),args:fg}:void 0,linux:l?{label:t,icon:n,kind:`editor`,detect:()=>l.map(e=>K(e)).find(Boolean)??null,args:fg}:void 0}}}'
 
     # shellcheck disable=SC2016
-    replace_first_available "$main_bundle" 1 \
+    replace_first_available "$main_bundle" 0 \
         'var Nl=(t,n,r,i,a)=>r!=null&&e.Ct(r)&&(i!=null||a!=null)?Cl({hostConfig:r,location:n,remotePath:a,remoteWorkspaceRoot:i}):Sl(t,n),Pl=Ml({id:`antigravity`,label:`Antigravity`,icon:`apps/antigravity.png`,darwinDetect:()=>Kc([`/Applications/Antigravity.app/Contents/Resources/app/bin/antigravity`]),win32Detect:Fl});' \
         'var Nl=(t,n,r,i,a)=>r!=null&&e.Ct(r)&&(i!=null||a!=null)?Cl({hostConfig:r,location:n,remotePath:a,remoteWorkspaceRoot:i}):Sl(t,n),Pl=Ml({id:`antigravity`,label:`Antigravity`,icon:`apps/antigravity.png`,darwinDetect:()=>Kc([`/Applications/Antigravity.app/Contents/Resources/app/bin/antigravity`]),win32Detect:Fl,linuxDetect:()=>U(`antigravity`)});' \
         'var Pl=(t,n,r,i,a)=>r!=null&&e.Ct(r)&&(i!=null||a!=null)?wl({hostConfig:r,location:n,remotePath:a,remoteWorkspaceRoot:i}):Cl(t,n),Fl=Nl({id:`antigravity`,label:`Antigravity`,icon:`apps/antigravity.png`,darwinDetect:()=>Kc([`/Applications/Antigravity.app/Contents/Resources/app/bin/antigravity`]),win32Detect:Il});' \
@@ -646,7 +732,7 @@ patch_main_js() {
         'ih=nh({id:`antigravity`,label:`Antigravity`,icon:`apps/antigravity.png`,darwinDetect:()=>hm([`/Applications/Antigravity.app/Contents/Resources/app/bin/antigravity`]),win32Detect:ah,linuxDetect:()=>K(`antigravity`)})'
 
     # shellcheck disable=SC2016
-    replace_first_available "$main_bundle" 1 \
+    replace_first_available "$main_bundle" 0 \
         'var au=Ml({id:`cursor`,label:`Cursor`,icon:`apps/cursor.png`,darwinDetect:()=>su()?.electronBin??null,win32Detect:cu,darwinEnv:()=>{let e={...process.env};return e.VSCODE_NODE_OPTIONS=e.NODE_OPTIONS,e.VSCODE_NODE_REPL_EXTERNAL_MODULE=e.NODE_REPL_EXTERNAL_MODULE,delete e.NODE_OPTIONS,delete e.NODE_REPL_EXTERNAL_MODULE,e.ELECTRON_RUN_AS_NODE=`1`,e},darwinArgs:(...e)=>{let t=su();if(!t)throw Error(`Cursor CLI entrypoint not available`);return[t.cliJs,...ou(...e)]}})' \
         'var au=Ml({id:`cursor`,label:`Cursor`,icon:`apps/cursor.png`,darwinDetect:()=>su()?.electronBin??null,win32Detect:cu,linuxDetect:()=>U(`cursor`),darwinEnv:()=>{let e={...process.env};return e.VSCODE_NODE_OPTIONS=e.NODE_OPTIONS,e.VSCODE_NODE_REPL_EXTERNAL_MODULE=e.NODE_REPL_EXTERNAL_MODULE,delete e.NODE_OPTIONS,delete e.NODE_REPL_EXTERNAL_MODULE,e.ELECTRON_RUN_AS_NODE=`1`,e},darwinArgs:(...e)=>{let t=su();if(!t)throw Error(`Cursor CLI entrypoint not available`);return[t.cliJs,...ou(...e)]}})' \
         'var ou=Nl({id:`cursor`,label:`Cursor`,icon:`apps/cursor.png`,darwinDetect:()=>cu()?.electronBin??null,win32Detect:lu,darwinEnv:()=>{let e={...process.env};return e.VSCODE_NODE_OPTIONS=e.NODE_OPTIONS,e.VSCODE_NODE_REPL_EXTERNAL_MODULE=e.NODE_REPL_EXTERNAL_MODULE,delete e.NODE_OPTIONS,delete e.NODE_REPL_EXTERNAL_MODULE,e.ELECTRON_RUN_AS_NODE=`1`,e},darwinArgs:(...e)=>{let t=cu();if(!t)throw Error(`Cursor CLI entrypoint not available`);return[t.cliJs,...su(...e)]}})' \
@@ -655,7 +741,7 @@ patch_main_js() {
         'var kh=nh({id:`cursor`,label:`Cursor`,icon:`apps/cursor.png`,darwinDetect:()=>jh()?.electronBin??null,win32Detect:Mh,linuxDetect:()=>K(`cursor`),darwinEnv:()=>{let e={...process.env};return e.VSCODE_NODE_OPTIONS=e.NODE_OPTIONS,e.VSCODE_NODE_REPL_EXTERNAL_MODULE=e.NODE_REPL_EXTERNAL_MODULE,delete e.NODE_OPTIONS,delete e.NODE_REPL_EXTERNAL_MODULE,e.ELECTRON_RUN_AS_NODE=`1`,e},darwinArgs:(...e)=>{let t=jh();if(!t)throw Error(`Cursor CLI entrypoint not available`);return[t.cliJs,...Ah(...e)]}})'
 
     # shellcheck disable=SC2016
-    replace_first_available "$main_bundle" 1 \
+    replace_first_available "$main_bundle" 0 \
         'var Uu=jl({id:`sublimeText`,label:`Sublime Text`,icon:`apps/sublime-text.png`,kind:`editor`,darwin:{detect:Wu,args:Hu},win32:{detect:Gu,args:Hu}});' \
         'var Uu=jl({id:`sublimeText`,label:`Sublime Text`,icon:`apps/sublime-text.png`,kind:`editor`,darwin:{detect:Wu,args:Hu},win32:{detect:Gu,args:Hu},linux:{detect:()=>U(`subl`)??U(`sublime_text`),args:Hu}});' \
         'var Wu=Ml({id:`sublimeText`,label:`Sublime Text`,icon:`apps/sublime-text.png`,kind:`editor`,darwin:{detect:Gu,args:Uu},win32:{detect:Ku,args:Uu}});' \
@@ -664,7 +750,7 @@ patch_main_js() {
         'var mg=th({id:`sublimeText`,label:`Sublime Text`,icon:`apps/sublime-text.png`,kind:`editor`,darwin:{detect:hg,args:pg},win32:{detect:gg,args:pg},linux:{detect:()=>K(`subl`)??K(`sublime_text`),args:pg}});'
 
     # shellcheck disable=SC2016
-    replace_first_available "$main_bundle" 1 \
+    replace_first_available "$main_bundle" 0 \
         'var td=Ml({id:`vscode`,label:`VS Code`,icon:`apps/vscode.png`,darwinDetect:()=>Kc([`/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code`,`/Applications/Code.app/Contents/Resources/app/bin/code`]),win32Detect:nd});' \
         'var td=Ml({id:`vscode`,label:`VS Code`,icon:`apps/vscode.png`,darwinDetect:()=>Kc([`/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code`,`/Applications/Code.app/Contents/Resources/app/bin/code`]),win32Detect:nd,linuxDetect:()=>U(`code`)});' \
         'var nd=Nl({id:`vscode`,label:`VS Code`,icon:`apps/vscode.png`,darwinDetect:()=>Kc([`/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code`,`/Applications/Code.app/Contents/Resources/app/bin/code`]),win32Detect:rd});' \
@@ -673,7 +759,7 @@ patch_main_js() {
         'var Eg=nh({id:`vscode`,label:`VS Code`,icon:`apps/vscode.png`,darwinDetect:()=>hm([`/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code`,`/Applications/Code.app/Contents/Resources/app/bin/code`]),win32Detect:Dg,linuxDetect:()=>K(`code`)});'
 
     # shellcheck disable=SC2016
-    replace_first_available "$main_bundle" 1 \
+    replace_first_available "$main_bundle" 0 \
         'var rd=Ml({id:`vscodeInsiders`,label:`VS Code Insiders`,icon:`apps/vscode-insiders.png`,darwinDetect:()=>Kc([`/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/bin/code`,`/Applications/Code - Insiders.app/Contents/Resources/app/bin/code`]),win32Detect:id});' \
         'var rd=Ml({id:`vscodeInsiders`,label:`VS Code Insiders`,icon:`apps/vscode-insiders.png`,darwinDetect:()=>Kc([`/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/bin/code`,`/Applications/Code - Insiders.app/Contents/Resources/app/bin/code`]),win32Detect:id,linuxDetect:()=>U(`code-insiders`)});' \
         'var id=Nl({id:`vscodeInsiders`,label:`VS Code Insiders`,icon:`apps/vscode-insiders.png`,darwinDetect:()=>Kc([`/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/bin/code`,`/Applications/Code - Insiders.app/Contents/Resources/app/bin/code`]),win32Detect:ad});' \
@@ -682,7 +768,7 @@ patch_main_js() {
         'var Og=nh({id:`vscodeInsiders`,label:`VS Code Insiders`,icon:`apps/vscode-insiders.png`,darwinDetect:()=>hm([`/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/bin/code`,`/Applications/Code - Insiders.app/Contents/Resources/app/bin/code`]),win32Detect:kg,linuxDetect:()=>K(`code-insiders`)});'
 
     # shellcheck disable=SC2016
-    replace_first_available "$main_bundle" 1 \
+    replace_first_available "$main_bundle" 0 \
         'var ad=zl({id:`warp`,label:`Warp`,icon:`apps/warp.png`,appPaths:[`/Applications/Warp.app`],appName:`Warp`}),od=Ml({id:`windsurf`,label:`Windsurf`,icon:`apps/windsurf.png`,darwinDetect:()=>Kc([`/Applications/Windsurf.app/Contents/Resources/app/bin/windsurf`])})' \
         'var ad=zl({id:`warp`,label:`Warp`,icon:`apps/warp.png`,appPaths:[`/Applications/Warp.app`],appName:`Warp`}),od=Ml({id:`windsurf`,label:`Windsurf`,icon:`apps/windsurf.png`,darwinDetect:()=>Kc([`/Applications/Windsurf.app/Contents/Resources/app/bin/windsurf`]),linuxDetect:()=>U(`windsurf`)})' \
         'var od=Bl({id:`warp`,label:`Warp`,icon:`apps/warp.png`,appPaths:[`/Applications/Warp.app`],appName:`Warp`}),sd=Nl({id:`windsurf`,label:`Windsurf`,icon:`apps/windsurf.png`,darwinDetect:()=>Kc([`/Applications/Windsurf.app/Contents/Resources/app/bin/windsurf`])})' \
@@ -691,7 +777,7 @@ patch_main_js() {
         'var Ag=lh({id:`warp`,label:`Warp`,icon:`apps/warp.png`,appPaths:[`/Applications/Warp.app`],appName:`Warp`}),jg=nh({id:`windsurf`,label:`Windsurf`,icon:`apps/windsurf.png`,darwinDetect:()=>hm([`/Applications/Windsurf.app/Contents/Resources/app/bin/windsurf`]),linuxDetect:()=>K(`windsurf`)})'
 
     # shellcheck disable=SC2016
-    replace_first_available "$main_bundle" 1 \
+    replace_first_available "$main_bundle" 0 \
         'var _d={id:`zed`,platforms:{darwin:{label:`Zed`,icon:`apps/zed.png`,kind:`editor`,detect:vd,args:Hu,open:async({command:e,path:t,location:n})=>{await Sd(e,t,n)}},win32:{label:`Zed`,icon:`apps/zed.png`,kind:`editor`,detect:yd,args:Hu}}};' \
         'var _d={id:`zed`,platforms:{darwin:{label:`Zed`,icon:`apps/zed.png`,kind:`editor`,detect:vd,args:Hu,open:async({command:e,path:t,location:n})=>{await Sd(e,t,n)}},win32:{label:`Zed`,icon:`apps/zed.png`,kind:`editor`,detect:yd,args:Hu},linux:{label:`Zed`,icon:`apps/zed.png`,kind:`editor`,detect:()=>U(`zed`),args:Hu}}};' \
         'var vd={id:`zed`,platforms:{darwin:{label:`Zed`,icon:`apps/zed.png`,kind:`editor`,detect:yd,args:Uu,open:async({command:e,path:t,location:n})=>{await Cd(e,t,n)}},win32:{label:`Zed`,icon:`apps/zed.png`,kind:`editor`,detect:bd,args:Uu}}};' \
@@ -700,7 +786,7 @@ patch_main_js() {
         'var Hg={id:`zed`,platforms:{darwin:{label:`Zed`,icon:`apps/zed.png`,kind:`editor`,detect:Ug,args:pg,open:async({command:e,path:t,location:n})=>{await qg(e,t,n)}},win32:{label:`Zed`,icon:`apps/zed.png`,kind:`editor`,detect:Wg,args:pg},linux:{label:`Zed`,icon:`apps/zed.png`,kind:`editor`,detect:()=>K(`zed`),args:pg}}};'
 
     # shellcheck disable=SC2016
-    replace_first_available "$main_bundle" 1 \
+    replace_first_available "$main_bundle" 0 \
         'Tu=Pu({id:`androidStudio`,label:`Android Studio`,icon:`apps/android-studio.png`,toolboxTarget:`androidStudio`,macExecutable:`studio`,windowsPathCommands:[`studio64.exe`,`studio.exe`,`studio`],windowsInstallDirPrefixes:[`android studio`],windowsInstallExecutables:[`studio64.exe`,`studio.exe`],windowsFallbackPaths:[[`Android`,`Android Studio`,`bin`,`studio64.exe`],[`Android`,`Android Studio`,`bin`,`studio.exe`]]})' \
         'Tu=Pu({id:`androidStudio`,label:`Android Studio`,icon:`apps/android-studio.png`,toolboxTarget:`androidStudio`,macExecutable:`studio`,windowsPathCommands:[`studio64.exe`,`studio.exe`,`studio`],windowsInstallDirPrefixes:[`android studio`],windowsInstallExecutables:[`studio64.exe`,`studio.exe`],windowsFallbackPaths:[[`Android`,`Android Studio`,`bin`,`studio64.exe`],[`Android`,`Android Studio`,`bin`,`studio.exe`]],linuxPathCommands:[`android-studio`,`studio`]})' \
         'Eu=Fu({id:`androidStudio`,label:`Android Studio`,icon:`apps/android-studio.png`,toolboxTarget:`androidStudio`,macExecutable:`studio`,windowsPathCommands:[`studio64.exe`,`studio.exe`,`studio`],windowsInstallDirPrefixes:[`android studio`],windowsInstallExecutables:[`studio64.exe`,`studio.exe`],windowsFallbackPaths:[[`Android`,`Android Studio`,`bin`,`studio64.exe`],[`Android`,`Android Studio`,`bin`,`studio.exe`]]})' \
@@ -709,7 +795,7 @@ patch_main_js() {
         'Xh=ag({id:`androidStudio`,label:`Android Studio`,icon:`apps/android-studio.png`,toolboxTarget:`androidStudio`,macExecutable:`studio`,windowsPathCommands:[`studio64.exe`,`studio.exe`,`studio`],windowsInstallDirPrefixes:[`android studio`],windowsInstallExecutables:[`studio64.exe`,`studio.exe`],windowsFallbackPaths:[[`Android`,`Android Studio`,`bin`,`studio64.exe`],[`Android`,`Android Studio`,`bin`,`studio.exe`]],linuxPathCommands:[`android-studio`,`studio`]})'
 
     # shellcheck disable=SC2016
-    replace_first_available "$main_bundle" 1 \
+    replace_first_available "$main_bundle" 0 \
         'Eu=Pu({id:`intellij`,label:`IntelliJ IDEA`,icon:`apps/intellij.png`,toolboxTarget:`intellij`,macExecutable:`idea`,windowsPathCommands:[`idea64.exe`,`idea.exe`,`idea`],windowsInstallDirPrefixes:[`intellij idea`,`idea`],windowsInstallExecutables:[`idea64.exe`,`idea.exe`]})' \
         'Eu=Pu({id:`intellij`,label:`IntelliJ IDEA`,icon:`apps/intellij.png`,toolboxTarget:`intellij`,macExecutable:`idea`,windowsPathCommands:[`idea64.exe`,`idea.exe`,`idea`],windowsInstallDirPrefixes:[`intellij idea`,`idea`],windowsInstallExecutables:[`idea64.exe`,`idea.exe`],linuxPathCommands:[`idea`,`idea.sh`]})' \
         'Du=Fu({id:`intellij`,label:`IntelliJ IDEA`,icon:`apps/intellij.png`,toolboxTarget:`intellij`,macExecutable:`idea`,windowsPathCommands:[`idea64.exe`,`idea.exe`,`idea`],windowsInstallDirPrefixes:[`intellij idea`,`idea`],windowsInstallExecutables:[`idea64.exe`,`idea.exe`]})' \
@@ -718,7 +804,7 @@ patch_main_js() {
         'Zh=ag({id:`intellij`,label:`IntelliJ IDEA`,icon:`apps/intellij.png`,toolboxTarget:`intellij`,macExecutable:`idea`,windowsPathCommands:[`idea64.exe`,`idea.exe`,`idea`],windowsInstallDirPrefixes:[`intellij idea`,`idea`],windowsInstallExecutables:[`idea64.exe`,`idea.exe`],linuxPathCommands:[`idea`,`idea.sh`]})'
 
     # shellcheck disable=SC2016
-    replace_first_available "$main_bundle" 1 \
+    replace_first_available "$main_bundle" 0 \
         'Du=Pu({id:`rider`,label:`Rider`,icon:`apps/rider.png`,toolboxTarget:`rider`,macExecutable:`rider`,windowsPathCommands:[`rider64.exe`,`rider.exe`,`rider`],windowsInstallDirPrefixes:[`rider`],windowsInstallExecutables:[`rider64.exe`,`rider.exe`]})' \
         'Du=Pu({id:`rider`,label:`Rider`,icon:`apps/rider.png`,toolboxTarget:`rider`,macExecutable:`rider`,windowsPathCommands:[`rider64.exe`,`rider.exe`,`rider`],windowsInstallDirPrefixes:[`rider`],windowsInstallExecutables:[`rider64.exe`,`rider.exe`],linuxPathCommands:[`rider`]})' \
         'Ou=Fu({id:`rider`,label:`Rider`,icon:`apps/rider.png`,toolboxTarget:`rider`,macExecutable:`rider`,windowsPathCommands:[`rider64.exe`,`rider.exe`,`rider`],windowsInstallDirPrefixes:[`rider`],windowsInstallExecutables:[`rider64.exe`,`rider.exe`]})' \
@@ -727,7 +813,7 @@ patch_main_js() {
         'Qh=ag({id:`rider`,label:`Rider`,icon:`apps/rider.png`,toolboxTarget:`rider`,macExecutable:`rider`,windowsPathCommands:[`rider64.exe`,`rider.exe`,`rider`],windowsInstallDirPrefixes:[`rider`],windowsInstallExecutables:[`rider64.exe`,`rider.exe`],linuxPathCommands:[`rider`]})'
 
     # shellcheck disable=SC2016
-    replace_first_available "$main_bundle" 1 \
+    replace_first_available "$main_bundle" 0 \
         'Ou=Pu({id:`goland`,label:`GoLand`,icon:`apps/goland.png`,toolboxTarget:`goland`,macExecutable:`goland`})' \
         'Ou=Pu({id:`goland`,label:`GoLand`,icon:`apps/goland.png`,toolboxTarget:`goland`,macExecutable:`goland`,linuxPathCommands:[`goland`]})' \
         'ku=Fu({id:`goland`,label:`GoLand`,icon:`apps/goland.png`,toolboxTarget:`goland`,macExecutable:`goland`})' \
@@ -736,7 +822,7 @@ patch_main_js() {
         '$h=ag({id:`goland`,label:`GoLand`,icon:`apps/goland.png`,toolboxTarget:`goland`,macExecutable:`goland`,linuxPathCommands:[`goland`]})'
 
     # shellcheck disable=SC2016
-    replace_first_available "$main_bundle" 1 \
+    replace_first_available "$main_bundle" 0 \
         'ku=Pu({id:`rustrover`,label:`RustRover`,icon:`apps/rustrover.png`,toolboxTarget:`rustrover`,macExecutable:`rustrover`})' \
         'ku=Pu({id:`rustrover`,label:`RustRover`,icon:`apps/rustrover.png`,toolboxTarget:`rustrover`,macExecutable:`rustrover`,linuxPathCommands:[`rustrover`]})' \
         'Au=Fu({id:`rustrover`,label:`RustRover`,icon:`apps/rustrover.png`,toolboxTarget:`rustrover`,macExecutable:`rustrover`})' \
@@ -745,7 +831,7 @@ patch_main_js() {
         'eg=ag({id:`rustrover`,label:`RustRover`,icon:`apps/rustrover.png`,toolboxTarget:`rustrover`,macExecutable:`rustrover`,linuxPathCommands:[`rustrover`]})'
 
     # shellcheck disable=SC2016
-    replace_first_available "$main_bundle" 1 \
+    replace_first_available "$main_bundle" 0 \
         'Au=Pu({id:`pycharm`,label:`PyCharm`,icon:`apps/pycharm.png`,toolboxTarget:`pycharm`,macExecutable:`pycharm`,windowsPathCommands:[`pycharm64.exe`,`pycharm.exe`,`pycharm`],windowsInstallDirPrefixes:[`pycharm`],windowsInstallExecutables:[`pycharm64.exe`,`pycharm.exe`]})' \
         'Au=Pu({id:`pycharm`,label:`PyCharm`,icon:`apps/pycharm.png`,toolboxTarget:`pycharm`,macExecutable:`pycharm`,windowsPathCommands:[`pycharm64.exe`,`pycharm.exe`,`pycharm`],windowsInstallDirPrefixes:[`pycharm`],windowsInstallExecutables:[`pycharm64.exe`,`pycharm.exe`],linuxPathCommands:[`pycharm`,`pycharm.sh`]})' \
         'ju=Fu({id:`pycharm`,label:`PyCharm`,icon:`apps/pycharm.png`,toolboxTarget:`pycharm`,macExecutable:`pycharm`,windowsPathCommands:[`pycharm64.exe`,`pycharm.exe`,`pycharm`],windowsInstallDirPrefixes:[`pycharm`],windowsInstallExecutables:[`pycharm64.exe`,`pycharm.exe`]})' \
@@ -754,7 +840,7 @@ patch_main_js() {
         'tg=ag({id:`pycharm`,label:`PyCharm`,icon:`apps/pycharm.png`,toolboxTarget:`pycharm`,macExecutable:`pycharm`,windowsPathCommands:[`pycharm64.exe`,`pycharm.exe`,`pycharm`],windowsInstallDirPrefixes:[`pycharm`],windowsInstallExecutables:[`pycharm64.exe`,`pycharm.exe`],linuxPathCommands:[`pycharm`,`pycharm.sh`]})'
 
     # shellcheck disable=SC2016
-    replace_first_available "$main_bundle" 1 \
+    replace_first_available "$main_bundle" 0 \
         'ju=Pu({id:`webstorm`,label:`WebStorm`,icon:`apps/webstorm.svg`,toolboxTarget:`webstorm`,macExecutable:`webstorm`,windowsPathCommands:[`webstorm64.exe`,`webstorm.exe`,`webstorm`],windowsInstallDirPrefixes:[`webstorm`],windowsInstallExecutables:[`webstorm64.exe`,`webstorm.exe`]})' \
         'ju=Pu({id:`webstorm`,label:`WebStorm`,icon:`apps/webstorm.svg`,toolboxTarget:`webstorm`,macExecutable:`webstorm`,windowsPathCommands:[`webstorm64.exe`,`webstorm.exe`,`webstorm`],windowsInstallDirPrefixes:[`webstorm`],windowsInstallExecutables:[`webstorm64.exe`,`webstorm.exe`],linuxPathCommands:[`webstorm`,`webstorm.sh`]})' \
         'Mu=Fu({id:`webstorm`,label:`WebStorm`,icon:`apps/webstorm.svg`,toolboxTarget:`webstorm`,macExecutable:`webstorm`,windowsPathCommands:[`webstorm64.exe`,`webstorm.exe`,`webstorm`],windowsInstallDirPrefixes:[`webstorm`],windowsInstallExecutables:[`webstorm64.exe`,`webstorm.exe`]})' \
@@ -763,7 +849,7 @@ patch_main_js() {
         'ng=ag({id:`webstorm`,label:`WebStorm`,icon:`apps/webstorm.svg`,toolboxTarget:`webstorm`,macExecutable:`webstorm`,windowsPathCommands:[`webstorm64.exe`,`webstorm.exe`,`webstorm`],windowsInstallDirPrefixes:[`webstorm`],windowsInstallExecutables:[`webstorm64.exe`,`webstorm.exe`],linuxPathCommands:[`webstorm`,`webstorm.sh`]})'
 
     # shellcheck disable=SC2016
-    replace_first_available "$main_bundle" 1 \
+    replace_first_available "$main_bundle" 0 \
         'Mu=Pu({id:`phpstorm`,label:`PhpStorm`,icon:`apps/phpstorm.png`,toolboxTarget:`phpstorm`,macExecutable:`phpstorm`,windowsPathCommands:[`phpstorm64.exe`,`phpstorm.exe`,`phpstorm`],windowsInstallDirPrefixes:[`phpstorm`],windowsInstallExecutables:[`phpstorm64.exe`,`phpstorm.exe`]})' \
         'Mu=Pu({id:`phpstorm`,label:`PhpStorm`,icon:`apps/phpstorm.png`,toolboxTarget:`phpstorm`,macExecutable:`phpstorm`,windowsPathCommands:[`phpstorm64.exe`,`phpstorm.exe`,`phpstorm`],windowsInstallDirPrefixes:[`phpstorm`],windowsInstallExecutables:[`phpstorm64.exe`,`phpstorm.exe`],linuxPathCommands:[`phpstorm`,`phpstorm.sh`]})' \
         'Nu=Fu({id:`phpstorm`,label:`PhpStorm`,icon:`apps/phpstorm.png`,toolboxTarget:`phpstorm`,macExecutable:`phpstorm`,windowsPathCommands:[`phpstorm64.exe`,`phpstorm.exe`,`phpstorm`],windowsInstallDirPrefixes:[`phpstorm`],windowsInstallExecutables:[`phpstorm64.exe`,`phpstorm.exe`]})' \
@@ -777,7 +863,7 @@ patch_main_js() {
     # =====================================================================
 
     # shellcheck disable=SC2016
-    replace_first_available "$main_bundle" 1 \
+    replace_first_available "$main_bundle" 0 \
         'function Kf(){let e=n.app.getAppPath();if(n.app.isPackaged)return i.join(e,`skills`);let t=i.join(e,`assets`,`skills`);if((0,o.existsSync)(t))return t;let r=i.join(e,`..`,`assets`,`skills`);return(0,o.existsSync)(r)?r:null}' \
         'function Kf(){let e=n.app.getAppPath(),t=i.join(e,`skills`);if((0,o.existsSync)(t))return t;if(n.app.isPackaged)return t;let r=i.join(e,`assets`,`skills`);if((0,o.existsSync)(r))return r;let a=i.join(e,`..`,`skills`);if((0,o.existsSync)(a))return a;let s=i.join(e,`..`,`assets`,`skills`);return(0,o.existsSync)(s)?s:null}' \
         'function qf(){let e=n.app.getAppPath();if(n.app.isPackaged)return i.join(e,`skills`);let t=i.join(e,`assets`,`skills`);if((0,o.existsSync)(t))return t;let r=i.join(e,`..`,`assets`,`skills`);return(0,o.existsSync)(r)?r:null}' \
@@ -863,8 +949,26 @@ patch_main_js() {
         'async function wT({repoRoot:e,bundledRepoRoot:t,repoPath:n,path:r,appServerClient:a}){let o=TT(e,n,r);if(await ET(o,a))return o;if(!t)return null;let s=TT(t,n,i.default);return await ET(s,a)?s:null}' \
         'async function wT({repoRoot:e,bundledRepoRoot:t,repoPath:n,path:r,appServerClient:a}){if(t){let o=TT(t,n,i.default);if(await ET(o,a))return o}let s=TT(e,n,r);return await ET(s,a)?s:null}'
 
+    # Patch browser annotation screenshots in comment-preload.js
+    local comment_preload="$BUILD_DIR/.vite/build/comment-preload.js"
+    if [ -f "$comment_preload" ]; then
+        # Stabilize saved screenshots by using stored anchor geometry
+        # instead of live element lookup, and render only the selected
+        # comment marker in prepared screenshot mode.
+        replace_literal "$comment_preload" \
+            'fe&&F?.anchor.kind===`element`){let e=ed(F,b.current)??null,t=e==null?null:dd(e);ye=t?.rect??Sd(F.anchor),xe=t?.borderRadius}' \
+            'fe&&F?.anchor.kind===`element`){ye=Sd(F.anchor),xe=void 0}'
+
+        replace_literal "$comment_preload" \
+            'he=pe==null?null:A.find(e=>Ld(e.anchor,pe))??null,ge=!fe&&he!=null?A.filter(e=>e.id!==he.id):A' \
+            'he=pe==null?null:A.find(e=>Ld(e.anchor,pe))??null,ge=fe?de:!fe&&he!=null?A.filter(e=>e.id!==he.id):A'
+    fi
+
     # Verify patched bundles parse correctly
     node --check "$main_bundle"
+    if [ -f "$comment_preload" ]; then
+        node --check "$comment_preload"
+    fi
     if [ "$skills_bundle" != "$main_bundle" ]; then
         node --check "$skills_bundle"
     fi

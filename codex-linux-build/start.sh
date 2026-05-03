@@ -178,10 +178,54 @@ trap cleanup EXIT
 
 sleep 0.3
 
-OZONE_FLAGS=()
-if [ "${XDG_SESSION_TYPE:-}" = "wayland" ]; then
-    OZONE_FLAGS=(--enable-features=UseOzonePlatform --ozone-platform=wayland)
-fi
+has_electron_flag() {
+    local flag_name="$1"
+    shift
+    local arg
+    for arg in "$@"; do
+        case "$arg" in
+            "$flag_name"|"$flag_name="*) return 0 ;;
+        esac
+    done
+    return 1
+}
+
+resolve_ozone_platform_args() {
+    OZONE_FLAGS=()
+    if has_electron_flag "--ozone-platform" "$@" || has_electron_flag "--ozone-platform-hint" "$@"; then
+        return 0
+    fi
+    if [ "${XDG_SESSION_TYPE:-}" = "wayland" ] && [ -n "${DISPLAY:-}" ]; then
+        OZONE_FLAGS=(--ozone-platform=x11)
+    elif [ "${XDG_SESSION_TYPE:-}" = "wayland" ]; then
+        OZONE_FLAGS=(--enable-features=UseOzonePlatform --ozone-platform=wayland)
+    fi
+}
+
+resolve_browser_use_runtime_env() {
+    if [ -z "${CODEX_ELECTRON_RESOURCES_PATH:-}" ]; then
+        export CODEX_ELECTRON_RESOURCES_PATH="$SCRIPT_DIR/dist"
+    fi
+    if [ -z "${CODEX_BROWSER_USE_NODE_PATH:-}" ]; then
+        if [ -x "$SCRIPT_DIR/dist/node" ]; then
+            export CODEX_BROWSER_USE_NODE_PATH="$SCRIPT_DIR/dist/node"
+        elif command -v node >/dev/null 2>&1; then
+            CODEX_BROWSER_USE_NODE_PATH="$(command -v node)"
+            export CODEX_BROWSER_USE_NODE_PATH
+        fi
+    fi
+    if [ -z "${CODEX_NODE_REPL_PATH:-}" ]; then
+        if [ -x "$SCRIPT_DIR/dist/node_repl" ]; then
+            export CODEX_NODE_REPL_PATH="$SCRIPT_DIR/dist/node_repl"
+        elif command -v node_repl >/dev/null 2>&1; then
+            CODEX_NODE_REPL_PATH="$(command -v node_repl)"
+            export CODEX_NODE_REPL_PATH
+        fi
+    fi
+}
+
+resolve_ozone_platform_args "$@"
+resolve_browser_use_runtime_env
 
 export CHROME_DESKTOP="${APP_DESKTOP_ID}.desktop"
 register_url_scheme_handlers
