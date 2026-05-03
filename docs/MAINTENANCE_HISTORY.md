@@ -22,8 +22,9 @@ Migrated the main-bundle patches from exact string matching to regex-based detec
 ### Browser Use Plugin Support
 
 - Added copying of `plugins/openai-bundled` resources from the upstream DMG into the build output.
-- Filters the bundled `marketplace.json` to expose only the `browser-use` plugin.
-- The launcher (`start.sh`) exports `CODEX_ELECTRON_RESOURCES_PATH`, `CODEX_BROWSER_USE_NODE_PATH`, and `CODEX_NODE_REPL_PATH` with a fallback to the system `node` when the upstream Mach-O binaries cannot be used.
+- Copies both `browser-use` and `latex-tectonic` plugins; the bundled `marketplace.json` exposes both.
+- The launcher (`start.sh`) exports `CODEX_ELECTRON_RESOURCES_PATH`, `CODEX_ELECTRON_BUNDLED_PLUGINS_RESOURCES_PATH`, `CODEX_BROWSER_USE_NODE_PATH`, and `CODEX_NODE_REPL_PATH` with a fallback to the system `node` when the upstream Mach-O binaries cannot be used.
+- Added a `node_repl` symlink fallback in the build output pointing to the system `node` when the upstream `node_repl` is not a Linux ELF executable.
 
 ### Browser Annotation Stabilization
 
@@ -33,9 +34,9 @@ Migrated the main-bundle patches from exact string matching to regex-based detec
 ### Launcher Updates
 
 - Reworked Wayland ozone platform selection:
-  - Wayland session with `DISPLAY` set → `--ozone-platform=x11` (XWayland) for correct popup positioning.
-  - Pure Wayland session without `DISPLAY` → native Wayland via `--ozone-platform=wayland`.
+  - Wayland session → native Wayland via `--ozone-platform=wayland` by default.
   - Respects user-supplied `--ozone-platform*` flags.
+  - Users can still force XWayland with `--ozone-platform=x11` if needed.
 
 ### Smoke Test Expansion
 

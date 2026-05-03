@@ -323,6 +323,17 @@ fs.writeFileSync(destPath, `${JSON.stringify(marketplace, null, 2)}\n`);
 NODE
     fi
 
+    # Create a node_repl symlink fallback for Browser Use if upstream binary is not Linux ELF
+    local upstream_node_repl="$upstream_resources/node_repl"
+    local dist_node_repl="$BUILD_DIR/node_repl"
+    if [ -f "$upstream_node_repl" ] && [ ! -x "$dist_node_repl" ]; then
+        if ! head -c 4 "$upstream_node_repl" | grep -q $'\x7fELF'; then
+            if command -v node >/dev/null 2>&1; then
+                ln -sf "$(command -v node)" "$dist_node_repl"
+            fi
+        fi
+    fi
+
     cp "$WEBVIEW_SERVER_TEMPLATE" "$BUILD_DIR/webview-server.js"
     ensure_main_entry_exists "$BUILD_DIR/package.json" "$BUILD_DIR"
 }
