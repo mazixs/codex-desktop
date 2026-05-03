@@ -195,9 +195,7 @@ resolve_ozone_platform_args() {
     if has_electron_flag "--ozone-platform" "$@" || has_electron_flag "--ozone-platform-hint" "$@"; then
         return 0
     fi
-    if [ "${XDG_SESSION_TYPE:-}" = "wayland" ] && [ -n "${DISPLAY:-}" ]; then
-        OZONE_FLAGS=(--ozone-platform=x11)
-    elif [ "${XDG_SESSION_TYPE:-}" = "wayland" ]; then
+    if [ "${XDG_SESSION_TYPE:-}" = "wayland" ]; then
         OZONE_FLAGS=(--enable-features=UseOzonePlatform --ozone-platform=wayland)
     fi
 }
@@ -206,6 +204,9 @@ resolve_browser_use_runtime_env() {
     if [ -z "${CODEX_ELECTRON_RESOURCES_PATH:-}" ]; then
         export CODEX_ELECTRON_RESOURCES_PATH="$SCRIPT_DIR/dist"
     fi
+    if [ -z "${CODEX_ELECTRON_BUNDLED_PLUGINS_RESOURCES_PATH:-}" ]; then
+        export CODEX_ELECTRON_BUNDLED_PLUGINS_RESOURCES_PATH="${CODEX_ELECTRON_RESOURCES_PATH}"
+    fi
     if [ -z "${CODEX_BROWSER_USE_NODE_PATH:-}" ]; then
         if [ -x "$SCRIPT_DIR/dist/node" ]; then
             export CODEX_BROWSER_USE_NODE_PATH="$SCRIPT_DIR/dist/node"
@@ -213,6 +214,9 @@ resolve_browser_use_runtime_env() {
             CODEX_BROWSER_USE_NODE_PATH="$(command -v node)"
             export CODEX_BROWSER_USE_NODE_PATH
         fi
+    fi
+    if [ -n "${CODEX_BROWSER_USE_NODE_PATH:-}" ] && [ -z "${NODE_REPL_NODE_PATH:-}" ]; then
+        export NODE_REPL_NODE_PATH="$CODEX_BROWSER_USE_NODE_PATH"
     fi
     if [ -z "${CODEX_NODE_REPL_PATH:-}" ]; then
         if [ -x "$SCRIPT_DIR/dist/node_repl" ]; then

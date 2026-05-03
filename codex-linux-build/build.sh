@@ -299,17 +299,25 @@ prepare_working_copy() {
     local source_plugin="$upstream_resources/plugins/openai-bundled"
     local source_marketplace="$source_plugin/.agents/plugins/marketplace.json"
     if [ -d "$source_plugin" ] && [ -f "$source_marketplace" ]; then
-        log "Copying Browser Use plugin resources..."
+        log "Copying bundled plugin resources..."
         mkdir -p "$BUILD_DIR/plugins/openai-bundled/plugins" "$BUILD_DIR/plugins/openai-bundled/.agents/plugins"
-        cp -R "$source_plugin/plugins/browser-use" "$BUILD_DIR/plugins/openai-bundled/plugins/browser-use"
-        # Filter marketplace to only browser-use plugin
+        # Copy browser-use plugin
+        if [ -d "$source_plugin/plugins/browser-use" ]; then
+            cp -R "$source_plugin/plugins/browser-use" "$BUILD_DIR/plugins/openai-bundled/plugins/browser-use"
+        fi
+        # Copy latex-tectonic plugin (expected by bundled marketplace)
+        if [ -d "$source_plugin/plugins/latex-tectonic" ]; then
+            cp -R "$source_plugin/plugins/latex-tectonic" "$BUILD_DIR/plugins/openai-bundled/plugins/latex-tectonic"
+        fi
+        # Filter marketplace to browser-use and latex-tectonic (linux-safe plugins)
         node - "$source_marketplace" "$BUILD_DIR/plugins/openai-bundled/.agents/plugins/marketplace.json" <<'NODE'
 const fs = require("fs");
 const path = require("path");
 const sourcePath = process.argv[2];
 const destPath = process.argv[3];
 const marketplace = JSON.parse(fs.readFileSync(sourcePath, "utf8"));
-marketplace.plugins = (marketplace.plugins || []).filter((p) => p.name === "browser-use");
+const allowed = new Set(["browser-use", "latex-tectonic"]);
+marketplace.plugins = (marketplace.plugins || []).filter((p) => allowed.has(p.name));
 fs.mkdirSync(path.dirname(destPath), { recursive: true });
 fs.writeFileSync(destPath, `${JSON.stringify(marketplace, null, 2)}\n`);
 NODE
