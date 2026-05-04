@@ -974,10 +974,12 @@ PY
         # Stabilize saved screenshots by using stored anchor geometry
         # instead of live element lookup, and render only the selected
         # comment marker in prepared screenshot mode.
+        # shellcheck disable=SC2016
         replace_literal "$comment_preload" \
             'fe&&F?.anchor.kind===`element`){let e=ed(F,b.current)??null,t=e==null?null:dd(e);ye=t?.rect??Sd(F.anchor),xe=t?.borderRadius}' \
             'fe&&F?.anchor.kind===`element`){ye=Sd(F.anchor),xe=void 0}'
 
+        # shellcheck disable=SC2016
         replace_literal "$comment_preload" \
             'he=pe==null?null:A.find(e=>Ld(e.anchor,pe))??null,ge=!fe&&he!=null?A.filter(e=>e.id!==he.id):A' \
             'he=pe==null?null:A.find(e=>Ld(e.anchor,pe))??null,ge=fe?de:!fe&&he!=null?A.filter(e=>e.id!==he.id):A'
