@@ -226,6 +226,20 @@ resolve_browser_use_runtime_env() {
             export CODEX_NODE_REPL_PATH
         fi
     fi
+    # Ensure node_repl is discoverable via PATH for Codex CLI MCP server lookup
+    if [ -x "$SCRIPT_DIR/dist/node_repl" ]; then
+        case ":${PATH}:" in
+            *":$SCRIPT_DIR/dist:") ;;
+            *) export PATH="$SCRIPT_DIR/dist:$PATH" ;;
+        esac
+    fi
+
+    # Auto-register node_repl MCP server if codex CLI is available and server not yet added
+    if command -v codex >/dev/null 2>&1 && [ -x "$SCRIPT_DIR/dist/node_repl" ]; then
+        if ! codex mcp list 2>/dev/null | grep -q "^node_repl[[:space:]]"; then
+            codex mcp add node_repl "$SCRIPT_DIR/dist/node_repl" >/dev/null 2>&1 || true
+        fi
+    fi
 }
 
 resolve_ozone_platform_args "$@"

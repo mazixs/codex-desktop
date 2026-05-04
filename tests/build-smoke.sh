@@ -20,14 +20,17 @@ main_bundle="$(find "$DIST_DIR/.vite/build" -maxdepth 1 -name 'main-*.js' ! -nam
 comment_preload="$DIST_DIR/.vite/build/comment-preload.js"
 
 # Opaque background: Linux branch exists
+# shellcheck disable=SC2016
 grep -Fq '===`linux`&&!' "$main_bundle" || err "Linux opaque background branch not found in main bundle"
 pass "Linux opaque background branch present"
 
 # File manager: Linux entry exists
+# shellcheck disable=SC2016
 grep -Fq 'linux:{label:`File Manager`' "$main_bundle" || err "Linux file manager entry not found"
 pass "Linux file manager entry present"
 
 # App menu: Linux null-menu branch exists
+# shellcheck disable=SC2016
 grep -Fq 'process.platform===`linux`?(n.Menu.setApplicationMenu(null)' "$main_bundle" || err "Linux app-menu patch not found"
 pass "Linux app-menu patch present"
 
@@ -48,6 +51,21 @@ if [ -d "$DIST_DIR/plugins/openai-bundled" ]; then
     pass "Browser Use plugin resources present"
 else
     pass "Browser Use plugin resources not present (optional)"
+fi
+
+# node_repl binary for Browser Use MCP server
+if [ -f "$DIST_DIR/node_repl" ]; then
+    file "$DIST_DIR/node_repl" | grep -q "ELF" || err "dist/node_repl is not a Linux ELF binary"
+    pass "node_repl Linux ELF binary present"
+else
+    pass "node_repl not present (optional)"
+fi
+
+# node symlink for Browser Use fallback
+if [ -L "$DIST_DIR/node" ]; then
+    pass "node symlink present"
+else
+    pass "node symlink not present (optional)"
 fi
 
 printf '[SMOKE] All smoke tests passed\n'

@@ -323,15 +323,40 @@ fs.writeFileSync(destPath, `${JSON.stringify(marketplace, null, 2)}\n`);
 NODE
     fi
 
-    # Create a node_repl symlink fallback for Browser Use if upstream binary is not Linux ELF
+    # Stage a real Linux node_repl for Browser Use if upstream binary is not ELF
     local upstream_node_repl="$upstream_resources/node_repl"
     local dist_node_repl="$BUILD_DIR/node_repl"
+    local cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/codex-desktop/node-repl-runtime"
     if [ -f "$upstream_node_repl" ] && [ ! -x "$dist_node_repl" ]; then
-        if ! head -c 4 "$upstream_node_repl" | grep -q $'\x7fELF'; then
-            if command -v node >/dev/null 2>&1; then
-                ln -sf "$(command -v node)" "$dist_node_repl"
+        if head -c 4 "$upstream_node_repl" | grep -q $'\x7fELF'; then
+            cp "$upstream_node_repl" "$dist_node_repl"
+            chmod +x "$dist_node_repl"
+        elif [ -x "$cache_dir/node_repl" ]; then
+            cp "$cache_dir/node_repl" "$dist_node_repl"
+            chmod +x "$dist_node_repl"
+        else
+            log "Downloading Linux node_repl from OpenAI primary runtime..."
+            mkdir -p "$cache_dir"
+            local url="https://persistent.oaistatic.com/codex-primary-runtime/26.426.12240/codex-primary-runtime-linux-x64-26.426.12240.tar.xz"
+            local tmpdir
+            tmpdir="$(mktemp -d)"
+            if curl -L --fail -o "$tmpdir/runtime.tar.xz" "$url"; then
+                tar -xJf "$tmpdir/runtime.tar.xz" -C "$tmpdir" codex-primary-runtime/dependencies/bin/node_repl
+                cp "$tmpdir/codex-primary-runtime/dependencies/bin/node_repl" "$cache_dir/node_repl"
+                chmod +x "$cache_dir/node_repl"
+                cp "$cache_dir/node_repl" "$dist_node_repl"
+                rm -rf "$tmpdir"
+                log "Downloaded node_repl to dist/"
+            else
+                warn "Failed to download node_repl; Browser Use may not function"
+                rm -rf "$tmpdir"
             fi
         fi
+    fi
+
+    # Symlink system node as dist/node for Browser Use plugin fallback
+    if [ ! -e "$BUILD_DIR/node" ] && command -v node >/dev/null 2>&1; then
+        ln -s "$(command -v node)" "$BUILD_DIR/node"
     fi
 
     cp "$WEBVIEW_SERVER_TEMPLATE" "$BUILD_DIR/webview-server.js"
