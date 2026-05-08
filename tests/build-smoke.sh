@@ -38,10 +38,10 @@ pass "Linux app-menu patch present"
 
 # Comment-preload: stored-anchor screenshot path
 if [ -f "$comment_preload" ]; then
-    grep -Fq 'ye=Sd(F.anchor)' "$comment_preload" || err "Comment-preload stored-anchor patch not found"
+    grep -Eq '(ye=Sd\(F\.anchor\)|De=al\(me\.anchor\),ke=void 0)' "$comment_preload" || err "Comment-preload stored-anchor patch not found"
     pass "Comment-preload stored-anchor patch present"
 
-    grep -Fq 'ge=fe?de:' "$comment_preload" || err "Comment-preload marker-filter patch not found"
+    grep -Eq '(ge=fe\?de:|be=\(ge\?he:)' "$comment_preload" || err "Comment-preload marker-filter patch not found"
     pass "Comment-preload marker-filter patch present"
 else
     pass "Comment-preload not present (optional)"
@@ -53,13 +53,13 @@ if [ -d "$DIST_DIR/plugins/openai-bundled" ]; then
     pass "Browser Use plugin resources present"
 
     if [ -f "$browser_plugin_json" ]; then
-        grep -Fq '"version": "0.1.0-alpha1-linux.1"' "$browser_plugin_json" || err "Browser Use Linux patched version missing"
+        grep -Eq '"version": "[^"]+-linux\.1"' "$browser_plugin_json" || err "Browser Use Linux patched version missing"
         pass "Browser Use Linux patched version present"
     fi
 
     if [ -f "$browser_client" ]; then
-        grep -Fq 'new URL(`${k7}/aura/site_status`)' "$browser_client" || err "Browser Use site_status endpoint missing"
-        grep -Fq 'r.searchParams.set("site_url",n.toString()),r.toString()' "$browser_client" || err "Browser Use site_status allowlist patch missing"
+        grep -Fq '/aura/site_status' "$browser_client" || err "Browser Use site_status endpoint missing"
+        grep -Eq 'searchParams\.set\("site_url",[^)]*\.toString\(\)\),[A-Za-z_$][A-Za-z0-9_$]*\.toString\(\)' "$browser_client" || err "Browser Use site_status allowlist patch missing"
         ! grep -Fq 'url_request_source' "$browser_client" || err "Browser Use site_status request metadata params still present"
         pass "Browser Use site_status allowlist patch present"
 

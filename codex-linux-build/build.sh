@@ -327,11 +327,48 @@ NODE
             # Linux node_repl currently allowlists /backend-api/aura/site_status
             # only with the site_url query param. Newer Browser Use clients add
             # request metadata params, which makes the safety check itself fail.
-            # shellcheck disable=SC2016
-            replace_literal "$browser_client" \
-                'function P7(e,t){let n=new URL(e.origin);n.pathname=e.pathname,n.search=e.search;let r=new URL(`${k7}/aura/site_status`);return r.searchParams.set("site_url",n.toString()),r.searchParams.set("url_request_source","codex_browser_use"),t?.session_id!=null&&r.searchParams.set("conversation_id",t.session_id),t?.turn_id!=null&&r.searchParams.set("turn_id",t.turn_id),r.toString()}' \
-                'function P7(e,t){let n=new URL(e.origin);n.pathname=e.pathname,n.search=e.search;let r=new URL(`${k7}/aura/site_status`);return r.searchParams.set("site_url",n.toString()),r.toString()}' \
-                1
+            python3 - "$browser_client" <<'PY'
+import re
+import sys
+
+path = sys.argv[1]
+with open(path, "r", encoding="utf-8") as handle:
+    content = handle.read()
+
+if "url_request_source" not in content:
+    sys.exit(0)
+
+pattern = re.compile(
+    r'function\s+([A-Za-z_$][\w$]*)\(([A-Za-z_$][\w$]*),([A-Za-z_$][\w$]*)\)'
+    r'\{let\s+([A-Za-z_$][\w$]*)=new URL\(\2\.origin\);'
+    r'\4\.pathname=\2\.pathname,\4\.search=\2\.search;'
+    r'let\s+([A-Za-z_$][\w$]*)=new URL\(`\$\{([A-Za-z_$][\w$]*)\}/aura/site_status`\);'
+    r'return\s+\5\.searchParams\.set\("site_url",\4\.toString\(\)\),'
+    r'\5\.searchParams\.set\("url_request_source","codex_browser_use"\),'
+    r'\3\?\.session_id!=null&&\5\.searchParams\.set\("conversation_id",\3\.session_id\),'
+    r'\3\?\.turn_id!=null&&\5\.searchParams\.set\("turn_id",\3\.turn_id\),'
+    r'\5\.toString\(\)\}'
+)
+
+def replacement(match):
+    func, url_arg, meta_arg, site_url, endpoint_url, base_url = match.groups()
+    return (
+        f"function {func}({url_arg},{meta_arg})"
+        f"{{let {site_url}=new URL({url_arg}.origin);"
+        f"{site_url}.pathname={url_arg}.pathname,{site_url}.search={url_arg}.search;"
+        f"let {endpoint_url}=new URL(`${{{base_url}}}/aura/site_status`);"
+        f"return {endpoint_url}.searchParams.set(\"site_url\",{site_url}.toString()),"
+        f"{endpoint_url}.toString()}}"
+    )
+
+content, count = pattern.subn(replacement, content, count=1)
+if count != 1:
+    print("ERROR: Could not patch Browser Use site_status allowlist request", file=sys.stderr)
+    sys.exit(1)
+
+with open(path, "w", encoding="utf-8") as handle:
+    handle.write(content)
+PY
         fi
 
         local browser_plugin_json="$BUILD_DIR/plugins/openai-bundled/plugins/browser-use/.codex-plugin/plugin.json"
@@ -340,8 +377,8 @@ NODE
 const fs = require("fs");
 const pluginPath = process.argv[2];
 const plugin = JSON.parse(fs.readFileSync(pluginPath, "utf8"));
-if (plugin.version === "0.1.0-alpha1") {
-  plugin.version = "0.1.0-alpha1-linux.1";
+if (typeof plugin.version === "string" && !plugin.version.includes("-linux.")) {
+  plugin.version = `${plugin.version}-linux.1`;
   fs.writeFileSync(pluginPath, `${JSON.stringify(plugin, null, 2)}\n`);
 }
 NODE
@@ -608,11 +645,11 @@ path, browser_client_hash = sys.argv[1:]
 with open(path, "r", encoding="utf-8") as handle:
     content = handle.read()
 
-pattern = r'var ([A-Za-z_$][\w$]*)=\[`[0-9a-f]{64}`\](,[A-Za-z_$][\w$]*=`openai-bundled`,[A-Za-z_$][\w$]*=`browser-use`)'
-replacement = rf'var \1=[`{browser_client_hash}`]\2'
-content, count = re.subn(pattern, replacement, content, count=1)
-if count != 1:
-    print("WARN: Could not update Browser Use trusted client hash", file=sys.stderr)
+hashes = re.findall(r'`[0-9a-f]{64}`', content)
+if len(hashes) != 1:
+    print("WARN: Could not identify Browser Use trusted client hash", file=sys.stderr)
+else:
+    content = content.replace(hashes[0], f'`{browser_client_hash}`', 1)
 
 with open(path, "w", encoding="utf-8") as handle:
     handle.write(content)
@@ -963,6 +1000,98 @@ PY
         'rg=ag({id:`phpstorm`,label:`PhpStorm`,icon:`apps/phpstorm.png`,toolboxTarget:`phpstorm`,macExecutable:`phpstorm`,windowsPathCommands:[`phpstorm64.exe`,`phpstorm.exe`,`phpstorm`],windowsInstallDirPrefixes:[`phpstorm`],windowsInstallExecutables:[`phpstorm64.exe`,`phpstorm.exe`]})' \
         'rg=ag({id:`phpstorm`,label:`PhpStorm`,icon:`apps/phpstorm.png`,toolboxTarget:`phpstorm`,macExecutable:`phpstorm`,windowsPathCommands:[`phpstorm64.exe`,`phpstorm.exe`,`phpstorm`],windowsInstallDirPrefixes:[`phpstorm`],windowsInstallExecutables:[`phpstorm64.exe`,`phpstorm.exe`],linuxPathCommands:[`phpstorm`,`phpstorm.sh`]})'
 
+    # New upstream builds keep the same target definitions, but minified
+    # helper names drift. Apply a structural patch for open-in-targets so
+    # Linux editor launchers stay available across upstream refreshes.
+    python3 - "$main_bundle" <<'PY'
+import re
+import sys
+
+path = sys.argv[1]
+with open(path, "r", encoding="utf-8") as handle:
+    content = handle.read()
+
+def replace_once(pattern: str, replacement: str, label: str, flags: int = 0) -> None:
+    global content
+    content, count = re.subn(pattern, replacement, content, count=1, flags=flags)
+    if count != 1:
+        print(f"WARN: Could not apply Linux open target patch: {label}", file=sys.stderr)
+
+if "linuxDetect:" not in content:
+    old = "function mC({id:e,label:t,icon:n,darwinDetect:r,win32Detect:i,darwinEnv:a,darwinArgs:o,hidden:s}){return{id:e,platforms:{darwin:r?{label:t,icon:n,kind:`editor`,hidden:s,detect:r,env:a,args:o??hC,supportsSsh:!0}:void 0,win32:i?{label:t,icon:n,kind:`editor`,hidden:s,detect:i,args:hC,supportsSsh:!0}:void 0}}}"
+    new = "function mC({id:e,label:t,icon:n,darwinDetect:r,win32Detect:i,linuxDetect:a,darwinEnv:o,darwinArgs:s,linuxArgs:c,hidden:l}){return{id:e,platforms:{darwin:r?{label:t,icon:n,kind:`editor`,hidden:l,detect:r,env:o,args:s??hC,supportsSsh:!0}:void 0,win32:i?{label:t,icon:n,kind:`editor`,hidden:l,detect:i,args:hC,supportsSsh:!0}:void 0,linux:a?{label:t,icon:n,kind:`editor`,hidden:l,detect:a,args:c??hC,supportsSsh:!0}:void 0}}}"
+    if old in content:
+        content = content.replace(old, new, 1)
+    else:
+        print("WARN: Could not apply Linux open target patch: editor helper", file=sys.stderr)
+
+if "linuxPathCommands:" not in content:
+    old = "function _w({id:e,label:t,icon:n,toolboxTarget:r,macExecutable:i,windowsPathCommands:a,windowsInstallDirPrefixes:o,windowsInstallExecutables:s,windowsFallbackPaths:c}){return{id:e,platforms:{darwin:{label:t,icon:n,kind:`editor`,detect:()=>xw(r,[`/Applications/${t}.app/Contents/MacOS/${i}`],t,i),args:ww},win32:a&&o&&s?{label:t,icon:n,kind:`editor`,detect:()=>Sw({pathCommands:a,installDirPrefixes:o,installExecutables:s,fallbackPaths:c}),args:ww}:void 0}}}"
+    new = "function _w({id:e,label:t,icon:n,toolboxTarget:r,macExecutable:i,windowsPathCommands:a,windowsInstallDirPrefixes:o,windowsInstallExecutables:s,windowsFallbackPaths:c,linuxPathCommands:l}){return{id:e,platforms:{darwin:{label:t,icon:n,kind:`editor`,detect:()=>xw(r,[`/Applications/${t}.app/Contents/MacOS/${i}`],t,i),args:ww},win32:a&&o&&s?{label:t,icon:n,kind:`editor`,detect:()=>Sw({pathCommands:a,installDirPrefixes:o,installExecutables:s,fallbackPaths:c}),args:ww}:void 0,linux:l?{label:t,icon:n,kind:`editor`,detect:()=>l.map(e=>Rp(e)).find(Boolean)??null,args:ww}:void 0}}}"
+    if old in content:
+        content = content.replace(old, new, 1)
+    else:
+        print("WARN: Could not apply Linux open target patch: JetBrains helper", file=sys.stderr)
+
+def inject_arg(object_id: str, arg: str) -> None:
+    global content
+    pattern = rf'(\{{id:`{re.escape(object_id)}`,[^{{}}]*?)(\}}\))'
+    content, count = re.subn(
+        pattern,
+        lambda match: match.group(0) if arg.split(":", 1)[0] in match.group(1) else f"{match.group(1)},{arg}{match.group(2)}",
+        content,
+        count=1,
+    )
+    if count != 1:
+        print(f"WARN: Could not add Linux target args for {object_id}", file=sys.stderr)
+
+for target_id, command in [
+    ("antigravity", "antigravity"),
+    ("vscode", "code"),
+    ("vscodeInsiders", "code-insiders"),
+    ("windsurf", "windsurf"),
+]:
+    inject_arg(target_id, f"linuxDetect:()=>Rp(`{command}`)")
+
+content, cursor_count = re.subn(
+    r'(var [A-Za-z_$][\w$]*=mC\(\{id:`cursor`,label:`Cursor`,icon:`apps/cursor\.png`,darwinDetect:\(\)=>[A-Za-z_$][\w$]*\(\)\?\.electronBin\?\?null,win32Detect:[A-Za-z_$][\w$]*)(,darwinEnv:)',
+    r'\1,linuxDetect:()=>Rp(`cursor`)\2',
+    content,
+    count=1,
+)
+if cursor_count != 1 and "id:`cursor`" in content and "linuxDetect:()=>Rp(`cursor`)" not in content:
+    print("WARN: Could not add Linux target args for cursor", file=sys.stderr)
+
+for target_id, commands in [
+    ("androidStudio", "[`android-studio`,`studio`]"),
+    ("intellij", "[`idea`,`idea.sh`]"),
+    ("rider", "[`rider`,`rider.sh`]"),
+    ("goland", "[`goland`,`goland.sh`]"),
+    ("rustrover", "[`rustrover`,`rustrover.sh`]"),
+    ("pycharm", "[`pycharm`,`pycharm.sh`]"),
+    ("webstorm", "[`webstorm`,`webstorm.sh`]"),
+    ("phpstorm", "[`phpstorm`,`phpstorm.sh`]"),
+]:
+    inject_arg(target_id, f"linuxPathCommands:{commands}")
+
+if "id:`sublimeText`" in content and "linux:{detect:()=>Rp(`subl`)" not in content:
+    content = content.replace(
+        "var Ew=pC({id:`sublimeText`,label:`Sublime Text`,icon:`apps/sublime-text.png`,kind:`editor`,darwin:{detect:Dw,args:Tw},win32:{detect:Ow,args:Tw}});",
+        "var Ew=pC({id:`sublimeText`,label:`Sublime Text`,icon:`apps/sublime-text.png`,kind:`editor`,darwin:{detect:Dw,args:Tw},win32:{detect:Ow,args:Tw},linux:{detect:()=>Rp(`subl`)??Rp(`sublime_text`),args:Tw}});",
+        1,
+    )
+
+if "id:`zed`" in content and "linux:{label:`Zed`" not in content:
+    content = content.replace(
+        "win32:{label:`Zed`,icon:`apps/zed.png`,kind:`editor`,detect:nT,args:Tw}}};",
+        "win32:{label:`Zed`,icon:`apps/zed.png`,kind:`editor`,detect:nT,args:Tw},linux:{label:`Zed`,icon:`apps/zed.png`,kind:`editor`,detect:()=>Rp(`zed`),args:Tw}}};",
+        1,
+    )
+
+with open(path, "w", encoding="utf-8") as handle:
+    handle.write(content)
+PY
+
     # =====================================================================
     # --- Skills path function (JE/yc) in main bundle ---
     # Makes the skills directory discoverable with existence checks and fallback paths
@@ -1062,14 +1191,18 @@ PY
         # instead of live element lookup, and render only the selected
         # comment marker in prepared screenshot mode.
         # shellcheck disable=SC2016
-        replace_literal "$comment_preload" \
+        replace_first_available "$comment_preload" 0 \
             'fe&&F?.anchor.kind===`element`){let e=ed(F,b.current)??null,t=e==null?null:dd(e);ye=t?.rect??Sd(F.anchor),xe=t?.borderRadius}' \
-            'fe&&F?.anchor.kind===`element`){ye=Sd(F.anchor),xe=void 0}'
+            'fe&&F?.anchor.kind===`element`){ye=Sd(F.anchor),xe=void 0}' \
+            'ge&&me?.anchor.kind===`element`){let e=Lc(me,b.current)??null,t=e==null?null:qc(e);De=t?.rect??al(me.anchor),ke=t?.borderRadius}' \
+            'ge&&me?.anchor.kind===`element`){De=al(me.anchor),ke=void 0}'
 
         # shellcheck disable=SC2016
-        replace_literal "$comment_preload" \
+        replace_first_available "$comment_preload" 0 \
             'he=pe==null?null:A.find(e=>Ld(e.anchor,pe))??null,ge=!fe&&he!=null?A.filter(e=>e.id!==he.id):A' \
-            'he=pe==null?null:A.find(e=>Ld(e.anchor,pe))??null,ge=fe?de:!fe&&he!=null?A.filter(e=>e.id!==he.id):A'
+            'he=pe==null?null:A.find(e=>Ld(e.anchor,pe))??null,ge=fe?de:!fe&&he!=null?A.filter(e=>e.id!==he.id):A' \
+            'be=(!ge&&ye!=null?A.filter(e=>e.id!==ye.id):A).flatMap' \
+            'be=(ge?he:!ge&&ye!=null?A.filter(e=>e.id!==ye.id):A).flatMap'
     fi
 
     # Verify patched bundles parse correctly
