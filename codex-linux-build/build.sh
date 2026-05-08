@@ -321,6 +321,31 @@ marketplace.plugins = (marketplace.plugins || []).filter((p) => allowed.has(p.na
 fs.mkdirSync(path.dirname(destPath), { recursive: true });
 fs.writeFileSync(destPath, `${JSON.stringify(marketplace, null, 2)}\n`);
 NODE
+
+        local browser_client="$BUILD_DIR/plugins/openai-bundled/plugins/browser-use/scripts/browser-client.mjs"
+        if [ -f "$browser_client" ]; then
+            # Linux node_repl currently allowlists /backend-api/aura/site_status
+            # only with the site_url query param. Newer Browser Use clients add
+            # request metadata params, which makes the safety check itself fail.
+            # shellcheck disable=SC2016
+            replace_literal "$browser_client" \
+                'function P7(e,t){let n=new URL(e.origin);n.pathname=e.pathname,n.search=e.search;let r=new URL(`${k7}/aura/site_status`);return r.searchParams.set("site_url",n.toString()),r.searchParams.set("url_request_source","codex_browser_use"),t?.session_id!=null&&r.searchParams.set("conversation_id",t.session_id),t?.turn_id!=null&&r.searchParams.set("turn_id",t.turn_id),r.toString()}' \
+                'function P7(e,t){let n=new URL(e.origin);n.pathname=e.pathname,n.search=e.search;let r=new URL(`${k7}/aura/site_status`);return r.searchParams.set("site_url",n.toString()),r.toString()}' \
+                1
+        fi
+
+        local browser_plugin_json="$BUILD_DIR/plugins/openai-bundled/plugins/browser-use/.codex-plugin/plugin.json"
+        if [ -f "$browser_plugin_json" ]; then
+            node - "$browser_plugin_json" <<'NODE'
+const fs = require("fs");
+const pluginPath = process.argv[2];
+const plugin = JSON.parse(fs.readFileSync(pluginPath, "utf8"));
+if (plugin.version === "0.1.0-alpha1") {
+  plugin.version = "0.1.0-alpha1-linux.1";
+  fs.writeFileSync(pluginPath, `${JSON.stringify(plugin, null, 2)}\n`);
+}
+NODE
+        fi
     fi
 
     # Stage a real Linux node_repl for Browser Use if upstream binary is not ELF
@@ -567,6 +592,31 @@ patch_main_js() {
     cp "$main_bundle" "$main_bundle.bak"
     if [ "$skills_bundle" != "$main_bundle" ]; then
         cp "$skills_bundle" "$skills_bundle.bak"
+    fi
+
+    # Keep Browser Use node_repl trust metadata aligned with the packaged
+    # browser client after Linux compatibility patches.
+    local browser_client="$BUILD_DIR/plugins/openai-bundled/plugins/browser-use/scripts/browser-client.mjs"
+    if [ -f "$browser_client" ]; then
+        local browser_client_hash
+        browser_client_hash="$(sha256sum "$browser_client" | awk '{print $1}')"
+        python3 - "$main_bundle" "$browser_client_hash" <<'PY'
+import re
+import sys
+
+path, browser_client_hash = sys.argv[1:]
+with open(path, "r", encoding="utf-8") as handle:
+    content = handle.read()
+
+pattern = r'var ([A-Za-z_$][\w$]*)=\[`[0-9a-f]{64}`\](,[A-Za-z_$][\w$]*=`openai-bundled`,[A-Za-z_$][\w$]*=`browser-use`)'
+replacement = rf'var \1=[`{browser_client_hash}`]\2'
+content, count = re.subn(pattern, replacement, content, count=1)
+if count != 1:
+    print("WARN: Could not update Browser Use trusted client hash", file=sys.stderr)
+
+with open(path, "w", encoding="utf-8") as handle:
+    handle.write(content)
+PY
     fi
 
     # =====================================================================

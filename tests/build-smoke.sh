@@ -18,6 +18,8 @@ pass() {
 
 main_bundle="$(find "$DIST_DIR/.vite/build" -maxdepth 1 -name 'main-*.js' ! -name '*.map' -type f | head -n 1)"
 comment_preload="$DIST_DIR/.vite/build/comment-preload.js"
+browser_client="$DIST_DIR/plugins/openai-bundled/plugins/browser-use/scripts/browser-client.mjs"
+browser_plugin_json="$DIST_DIR/plugins/openai-bundled/plugins/browser-use/.codex-plugin/plugin.json"
 
 # Opaque background: Linux branch exists
 # shellcheck disable=SC2016
@@ -49,6 +51,22 @@ fi
 if [ -d "$DIST_DIR/plugins/openai-bundled" ]; then
     [ -f "$DIST_DIR/plugins/openai-bundled/.agents/plugins/marketplace.json" ] || err "Browser Use marketplace.json missing"
     pass "Browser Use plugin resources present"
+
+    if [ -f "$browser_plugin_json" ]; then
+        grep -Fq '"version": "0.1.0-alpha1-linux.1"' "$browser_plugin_json" || err "Browser Use Linux patched version missing"
+        pass "Browser Use Linux patched version present"
+    fi
+
+    if [ -f "$browser_client" ]; then
+        grep -Fq 'new URL(`${k7}/aura/site_status`)' "$browser_client" || err "Browser Use site_status endpoint missing"
+        grep -Fq 'r.searchParams.set("site_url",n.toString()),r.toString()' "$browser_client" || err "Browser Use site_status allowlist patch missing"
+        ! grep -Fq 'url_request_source' "$browser_client" || err "Browser Use site_status request metadata params still present"
+        pass "Browser Use site_status allowlist patch present"
+
+        browser_client_hash="$(sha256sum "$browser_client" | awk '{print $1}')"
+        grep -Fq "\`$browser_client_hash\`" "$main_bundle" || err "Browser Use trusted client hash not updated in main bundle"
+        pass "Browser Use trusted client hash updated"
+    fi
 else
     pass "Browser Use plugin resources not present (optional)"
 fi
