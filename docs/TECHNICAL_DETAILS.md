@@ -12,7 +12,7 @@ This document records the exact reverse-engineering steps and workarounds implem
 ## 2. Dealing with Native Modules
 Native Node.js extensions specific to the macOS build fail to load under Linux's dynamic linker (glibc).
 * **`sparkle.node`**: A wrapper for the Sparkle macOS auto-updater. It has no Linux equivalent. **Solution:** Completely deleted. We patch Electron to ignore `require('electron-squirrel-startup')` and Sparkle components.
-* **`better-sqlite3.node` & `node-pty.node`**: Hard-compiled for macOS. **Solution:** Script deletes the `.node` binaries in `node_modules`. Instead of fetching from unverified sources, the pipeline uses `@electron/rebuild` against `electron@40.0.0` headers to securely compile native versions of `better-sqlite3@12.5.0` and `node-pty@1.1.0` locally using `/usr/bin/gcc`.
+* **`better-sqlite3.node` & `node-pty.node`**: Hard-compiled for macOS. **Solution:** Script deletes the `.node` binaries in `node_modules`. Instead of fetching from unverified sources, the pipeline uses `@electron/rebuild` against `electron@41.3.0` headers to securely compile native versions of `better-sqlite3@12.9.0` and `node-pty@1.1.0` locally using `/usr/bin/gcc`.
 
 ## 3. The `codex` LSP CLI Replacement
 * Opening `/Contents/Resources/bin/codex` revealed it was the Rust backend acting as the Language Server (LSP) and WebSocket communication handler.
@@ -56,9 +56,9 @@ Minified JavaScript requires exact structural `sed` replacements:
 
 The current maintenance baseline also includes:
 
-* **Fresh upstream DMG refresh:** the repository-local `Codex.dmg` was replaced after confirming a SHA-256 change from `65d3114117f1f03157e2968358e7c1bbaca48f3fe4a9bc9b71fc6f719e9702eb` to `590b5b986c26c10efa82d605b677eea0fc6142ed61b51c4fe91a4be8b09c1936`.
-* **New upstream app version:** the refreshed bundle packaged as `26.422.21637`, with new hashed bundle entrypoints including `main-DCRKtMoS.js` and `workspace-root-drop-handler-C1fc5j6q.js`.
-* **CLI bump:** the bundled Linux launcher path now targets `@openai/codex@0.124.0`.
+* **Fresh upstream DMG refresh:** the repository-local `Codex.dmg` was replaced after confirming a new upstream release (SHA-256 `2afad650981161bb86fd815221cfe97644611912b77c3a9f2a3d743bbae315c9`).
+* **New upstream app version:** the refreshed bundle packaged as `26.506.21252`.
+* **CLI bump:** the bundled Linux launcher path now targets `@openai/codex@0.130.0`.
 * **Patch validation:** the refreshed upstream bundle required new patch anchors in both the main bundle and the skills bundle, but the Linux opacity, file-manager, skill override, and menu patches still apply after rebinding.
 * **Operational caveat:** `./build.sh --clean` removes build outputs but not `codex_extracted/`. When validating a new upstream DMG or a CI patch failure, delete `codex_extracted/` or build against a fresh DMG path to avoid false-local green runs on stale extracted sources.
 

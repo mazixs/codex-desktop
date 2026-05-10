@@ -7,7 +7,7 @@ This document describes the technical implementation details of adapting the mac
 The original application (`app.asar`) is distributed with pre-compiled `.node` modules targeting Darwin (macOS) `arm64/x64`. 
 The build script performs a complete extraction, removes these binaries, and dynamically recompiles them for Linux x64:
 
-* `better-sqlite3`: Removed and re-installed via npm (`v12.5.0`), then compiled via `@electron/rebuild`.
+* `better-sqlite3`: Removed and re-installed via npm (`v12.9.0`), then compiled via `@electron/rebuild`.
 * `node-pty`: Replaced the macOS PTY bridge with a native Linux PTY implementation (`v1.1.0`), built against Electron headers.
 * `sparkle`: The auto-updates framework is entirely macOS-specific and deleted outright from the build.
 

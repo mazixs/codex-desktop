@@ -2,6 +2,27 @@
 
 This document records recent repository maintenance work that changed the Linux adaptation layer.
 
+## 2026-05-08
+
+### Upstream Refresh
+
+- Refreshed against the upstream DMG (Codex Desktop `26.506.21252`).
+- DMG SHA-256: `2afad650981161bb86fd815221cfe97644611912b77c3a9f2a3d743bbae315c9`.
+- Bumped Electron runtime to `41.3.0`.
+- Bumped `@openai/codex` CLI to `0.130.0`.
+- Bumped `better-sqlite3` native build to `12.9.0`.
+
+### Browser Use Updates
+
+- Aligned the `site_status` request patch with the `node_repl` allowlist to ensure the Browser Use plugin continues to function correctly on Linux.
+
+### Validation
+
+- `rm -rf codex_extracted`
+- `./build.sh --clean`
+- `pnpm run verify`
+- `tests/build-smoke.sh`
+
 ## 2026-05-03
 
 ### Upstream Refresh
