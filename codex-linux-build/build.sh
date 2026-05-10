@@ -290,6 +290,28 @@ prepare_working_copy() {
     copy_required_path "$APP_UNPACKED/package.json" "$BUILD_DIR"
     copy_required_path "$APP_UNPACKED/node_modules" "$BUILD_DIR"
 
+    # Upstream macOS builds can show an app sunset/update-required gate. Linux
+    # packages are refreshed by this build pipeline, so keep the webview usable
+    # even when that macOS distribution gate flips remotely.
+    python3 - "$BUILD_DIR/webview/assets" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+assets_dir = Path(sys.argv[1])
+pattern = re.compile(r'if\(([A-Za-z_$][\w$]*)\(`2929582856`\)\)\{')
+patched = 0
+for path in assets_dir.glob("*.js"):
+    content = path.read_text(encoding="utf-8")
+    updated, count = pattern.subn(r'if(!1&&\1(`2929582856`)){', content, count=1)
+    if count:
+        path.write_text(updated, encoding="utf-8")
+        patched += count
+
+if patched == 0 and any("2929582856" in path.read_text(encoding="utf-8") for path in assets_dir.glob("*.js")):
+    print("WARN: Could not patch app sunset gate", file=sys.stderr)
+PY
+
     if [ -d "$APP_UNPACKED/native" ]; then
         copy_required_path "$APP_UNPACKED/native" "$BUILD_DIR"
     fi
@@ -595,7 +617,9 @@ replace_first_available() {
         exit 1
     fi
 
-    warn "No compatible patch pattern found in $(basename "$target_file"), skipped optional patch"
+    if [ "${CODEX_VERBOSE_PATCH_WARNINGS:-0}" = "1" ]; then
+        warn "No compatible patch pattern found in $(basename "$target_file"), skipped optional patch"
+    fi
     return 0
 }
 
@@ -832,6 +856,88 @@ content = content.replace(needle, replacement)
 open(path, "w").write(content)
 PY
 
+    # Add a Linux terminal open target. Upstream only exposes Terminal on
+    # macOS/Windows, but Codex can use the same open-target pipeline on Linux
+    # when a common terminal emulator is available.
+    # shellcheck disable=SC2016
+    python3 - "$main_bundle" <<'PY'
+import sys
+import re
+
+path = sys.argv[1]
+content = open(path, "r", encoding="utf-8").read()
+
+def find_matching_brace(source: str, start: int) -> int:
+    depth = 0
+    in_string = None
+    escaped = False
+    for index in range(start, len(source)):
+        char = source[index]
+        if in_string is not None:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == in_string:
+                in_string = None
+            continue
+        if char in ("'", '"', "`"):
+            in_string = char
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return index
+    return -1
+
+def find_target_block(source: str, target_id: str):
+    pattern = re.compile(rf"(?P<name>[A-Za-z_$][\w$]*)=\{{id:`{re.escape(target_id)}`")
+    for match in pattern.finditer(source):
+        block_start = match.start("name")
+        assignment = source.find("=", block_start)
+        object_start = assignment + 1
+        object_end = find_matching_brace(source, object_start)
+        if object_end == -1:
+            continue
+        helper_insert = source.rfind("var ", 0, block_start)
+        if helper_insert == -1:
+            helper_insert = source.rfind(";", 0, block_start) + 1
+        block_end = object_end + 1
+        return helper_insert, block_start, block_end, source[block_start:block_end]
+    return None
+
+if "linux:{label:`Terminal`" not in content and "id:`terminal`" in content:
+    block_info = find_target_block(content, "terminal")
+    if block_info is None:
+        print("WARN: Could not find terminal open target -- skipping Linux terminal patch", file=sys.stderr)
+    else:
+        helper = (
+            "function codexLinuxFindExecutable(e){if(process.platform!==`linux`||!e)return null;let t=require(`node:fs`),n=require(`node:path`);"
+            "for(let r of(process.env.PATH||``).split(`:`)){if(!r||!n.isAbsolute(r))continue;let i=n.join(r,e);try{if(t.existsSync(i)){let e=t.statSync(i);"
+            "if(e.isFile())try{t.accessSync(i,t.constants.X_OK);return i}catch{}}}catch{}}return null}"
+            "function codexLinuxTerminalCommand(){for(let e of[`x-terminal-emulator`,`gnome-terminal`,`kgx`,`konsole`,`xfce4-terminal`,`mate-terminal`,`lxterminal`,`tilix`,`alacritty`,`kitty`,`ghostty`,`wezterm`,`foot`,`terminology`,`xterm`]){let t=codexLinuxFindExecutable(e);if(t)return t}return null}"
+            "function codexLinuxTerminalCwd(e){let t=require(`node:fs`),n=require(`node:path`),r=e;for(;;){try{if(t.existsSync(r))return t.statSync(r).isDirectory()?r:n.dirname(r)}catch{}let e=n.dirname(r);if(e===r)return process.env.HOME||`/`;r=e}}"
+            "function codexLinuxTerminalArgs(e,t){let n=require(`node:path`),r=codexLinuxTerminalCwd(t),i=n.basename(e).toLowerCase();"
+            "if(i===`wezterm`)return[`start`,`--cwd`,r];if(i===`konsole`)return[`--workdir`,r];if(i===`kitty`)return[`--directory`,r];if(i===`terminology`)return[`--workdir`,r];"
+            "return[`gnome-terminal`,`kgx`,`xfce4-terminal`,`mate-terminal`,`lxterminal`,`tilix`,`alacritty`,`ghostty`,`foot`].includes(i)?[`--working-directory`,r]:[]}"
+            "async function codexLinuxOpenTerminal(e,t){return new Promise((n,r)=>{let i=!1,a;try{let o=require(`node:child_process`).spawn(e,codexLinuxTerminalArgs(e,t),{cwd:codexLinuxTerminalCwd(t),detached:!0,stdio:`ignore`,env:process.env});"
+            "a=setTimeout(()=>{i=!0,o.unref?.(),n()},400),a.unref?.(),o.on(`error`,e=>{i||(clearTimeout(a),r(e))}),o.on(`close`,e=>{i||(clearTimeout(a),e===0?n():r(Error(`Linux terminal launch failed`)))})}catch(e){clearTimeout(a),r(e)}})}"
+        )
+        helper_insert, block_start, block_end, block = block_info
+        platforms_index = block.find("platforms:{")
+        platforms_object_start = block.find("{", platforms_index) if platforms_index != -1 else -1
+        platforms_object_end = find_matching_brace(block, platforms_object_start) if platforms_object_start != -1 else -1
+        if platforms_object_end == -1:
+            print("WARN: Could not parse terminal platforms -- skipping Linux terminal patch", file=sys.stderr)
+        else:
+            linux_terminal = ",linux:{label:`Terminal`,icon:`apps/terminal.png`,kind:`terminal`,detect:()=>codexLinuxTerminalCommand(),args:e=>[],open:async({command:e,path:t})=>{await codexLinuxOpenTerminal(e,t)}}"
+            patched_block = block[:platforms_object_end] + linux_terminal + block[platforms_object_end:]
+            content = content[:helper_insert] + helper + content[helper_insert:block_start] + patched_block + content[block_end:]
+
+open(path, "w", encoding="utf-8").write(content)
+PY
+
     # Add Linux editor/IDE targets. Upstream ships icons and target definitions
     # for macOS/Windows, but most editor targets have no linux platform entry
     # and are filtered out before detection runs.
@@ -1017,21 +1123,50 @@ def replace_once(pattern: str, replacement: str, label: str, flags: int = 0) -> 
     if count != 1:
         print(f"WARN: Could not apply Linux open target patch: {label}", file=sys.stderr)
 
-if "linuxDetect:" not in content:
-    old = "function mC({id:e,label:t,icon:n,darwinDetect:r,win32Detect:i,darwinEnv:a,darwinArgs:o,hidden:s}){return{id:e,platforms:{darwin:r?{label:t,icon:n,kind:`editor`,hidden:s,detect:r,env:a,args:o??hC,supportsSsh:!0}:void 0,win32:i?{label:t,icon:n,kind:`editor`,hidden:s,detect:i,args:hC,supportsSsh:!0}:void 0}}}"
-    new = "function mC({id:e,label:t,icon:n,darwinDetect:r,win32Detect:i,linuxDetect:a,darwinEnv:o,darwinArgs:s,linuxArgs:c,hidden:l}){return{id:e,platforms:{darwin:r?{label:t,icon:n,kind:`editor`,hidden:l,detect:r,env:o,args:s??hC,supportsSsh:!0}:void 0,win32:i?{label:t,icon:n,kind:`editor`,hidden:l,detect:i,args:hC,supportsSsh:!0}:void 0,linux:a?{label:t,icon:n,kind:`editor`,hidden:l,detect:a,args:c??hC,supportsSsh:!0}:void 0}}}"
-    if old in content:
-        content = content.replace(old, new, 1)
-    else:
-        print("WARN: Could not apply Linux open target patch: editor helper", file=sys.stderr)
+detect_match = re.search(r'linuxDetect:\(\)=>([A-Za-z_$][\w$]*)\(`(?:antigravity|code|windsurf)`\)', content)
+detect_func = detect_match.group(1) if detect_match else "Rp"
 
-if "linuxPathCommands:" not in content:
-    old = "function _w({id:e,label:t,icon:n,toolboxTarget:r,macExecutable:i,windowsPathCommands:a,windowsInstallDirPrefixes:o,windowsInstallExecutables:s,windowsFallbackPaths:c}){return{id:e,platforms:{darwin:{label:t,icon:n,kind:`editor`,detect:()=>xw(r,[`/Applications/${t}.app/Contents/MacOS/${i}`],t,i),args:ww},win32:a&&o&&s?{label:t,icon:n,kind:`editor`,detect:()=>Sw({pathCommands:a,installDirPrefixes:o,installExecutables:s,fallbackPaths:c}),args:ww}:void 0}}}"
-    new = "function _w({id:e,label:t,icon:n,toolboxTarget:r,macExecutable:i,windowsPathCommands:a,windowsInstallDirPrefixes:o,windowsInstallExecutables:s,windowsFallbackPaths:c,linuxPathCommands:l}){return{id:e,platforms:{darwin:{label:t,icon:n,kind:`editor`,detect:()=>xw(r,[`/Applications/${t}.app/Contents/MacOS/${i}`],t,i),args:ww},win32:a&&o&&s?{label:t,icon:n,kind:`editor`,detect:()=>Sw({pathCommands:a,installDirPrefixes:o,installExecutables:s,fallbackPaths:c}),args:ww}:void 0,linux:l?{label:t,icon:n,kind:`editor`,detect:()=>l.map(e=>Rp(e)).find(Boolean)??null,args:ww}:void 0}}}"
-    if old in content:
-        content = content.replace(old, new, 1)
-    else:
-        print("WARN: Could not apply Linux open target patch: JetBrains helper", file=sys.stderr)
+editor_helper_pattern = re.compile(
+    r'function ([A-Za-z_$][\w$]*)\(\{id:e,label:t,icon:n,darwinDetect:r,win32Detect:i,darwinEnv:a,darwinArgs:o,hidden:s\}\)'
+    r'\{return\{id:e,platforms:\{'
+    r'darwin:r\?\{label:t,icon:n,kind:`editor`,hidden:s,detect:r,env:a,args:o\?\?([A-Za-z_$][\w$]*),supportsSsh:!0\}:void 0,'
+    r'win32:i\?\{label:t,icon:n,kind:`editor`,hidden:s,detect:i,args:\2,supportsSsh:!0\}:void 0'
+    r'\}\}\}'
+)
+
+def replace_editor_helper(match: re.Match[str]) -> str:
+    name, args_func = match.group(1), match.group(2)
+    return (
+        f"function {name}({{id:e,label:t,icon:n,darwinDetect:r,win32Detect:i,linuxDetect:a,darwinEnv:o,darwinArgs:s,linuxArgs:c,hidden:l}})"
+        f"{{return{{id:e,platforms:{{darwin:r?{{label:t,icon:n,kind:`editor`,hidden:l,detect:r,env:o,args:s??{args_func},supportsSsh:!0}}:void 0,"
+        f"win32:i?{{label:t,icon:n,kind:`editor`,hidden:l,detect:i,args:{args_func},supportsSsh:!0}}:void 0,"
+        f"linux:a?{{label:t,icon:n,kind:`editor`,hidden:l,detect:a,args:c??{args_func},supportsSsh:!0}}:void 0}}}}}}"
+    )
+
+content, editor_helper_count = editor_helper_pattern.subn(replace_editor_helper, content, count=1)
+if editor_helper_count != 1 and re.search(r'function [A-Za-z_$][\w$]*\(\{id:e,label:t,icon:n,darwinDetect:r,win32Detect:i,', content):
+    print("WARN: Could not apply Linux open target patch: editor helper", file=sys.stderr)
+
+jetbrains_helper_pattern = re.compile(
+    r'function ([A-Za-z_$][\w$]*)\(\{id:e,label:t,icon:n,toolboxTarget:r,macExecutable:i,windowsPathCommands:a,windowsInstallDirPrefixes:o,windowsInstallExecutables:s,windowsFallbackPaths:c\}\)'
+    r'\{return\{id:e,platforms:\{'
+    r'darwin:\{label:t,icon:n,kind:`editor`,detect:\(\)=>([A-Za-z_$][\w$]*)\(r,\[`/Applications/\$\{t\}\.app/Contents/MacOS/\$\{i\}`\],t,i\),args:([A-Za-z_$][\w$]*)\},'
+    r'win32:a&&o&&s\?\{label:t,icon:n,kind:`editor`,detect:\(\)=>([A-Za-z_$][\w$]*)\(\{pathCommands:a,installDirPrefixes:o,installExecutables:s,fallbackPaths:c\}\),args:\3\}:void 0'
+    r'\}\}\}'
+)
+
+def replace_jetbrains_helper(match: re.Match[str]) -> str:
+    name, darwin_detect, args_func, win_detect = match.group(1), match.group(2), match.group(3), match.group(4)
+    return (
+        f"function {name}({{id:e,label:t,icon:n,toolboxTarget:r,macExecutable:i,windowsPathCommands:a,windowsInstallDirPrefixes:o,windowsInstallExecutables:s,windowsFallbackPaths:c,linuxPathCommands:l}})"
+        f"{{return{{id:e,platforms:{{darwin:{{label:t,icon:n,kind:`editor`,detect:()=>{darwin_detect}(r,[`/Applications/${{t}}.app/Contents/MacOS/${{i}}`],t,i),args:{args_func}}},"
+        f"win32:a&&o&&s?{{label:t,icon:n,kind:`editor`,detect:()=>{win_detect}({{pathCommands:a,installDirPrefixes:o,installExecutables:s,fallbackPaths:c}}),args:{args_func}}}:void 0,"
+        f"linux:l?{{label:t,icon:n,kind:`editor`,detect:()=>l.map(e=>{detect_func}(e)).find(Boolean)??null,args:{args_func}}}:void 0}}}}}}"
+    )
+
+content, jetbrains_helper_count = jetbrains_helper_pattern.subn(replace_jetbrains_helper, content, count=1)
+if jetbrains_helper_count != 1 and "toolboxTarget:" in content:
+    print("WARN: Could not apply Linux open target patch: JetBrains helper", file=sys.stderr)
 
 def inject_arg(object_id: str, arg: str) -> None:
     global content
@@ -1051,15 +1186,15 @@ for target_id, command in [
     ("vscodeInsiders", "code-insiders"),
     ("windsurf", "windsurf"),
 ]:
-    inject_arg(target_id, f"linuxDetect:()=>Rp(`{command}`)")
+    inject_arg(target_id, f"linuxDetect:()=>{detect_func}(`{command}`)")
 
 content, cursor_count = re.subn(
-    r'(var [A-Za-z_$][\w$]*=mC\(\{id:`cursor`,label:`Cursor`,icon:`apps/cursor\.png`,darwinDetect:\(\)=>[A-Za-z_$][\w$]*\(\)\?\.electronBin\?\?null,win32Detect:[A-Za-z_$][\w$]*)(,darwinEnv:)',
-    r'\1,linuxDetect:()=>Rp(`cursor`)\2',
+    rf'(var [A-Za-z_$][\w$]*=[A-Za-z_$][\w$]*\(\{{id:`cursor`,label:`Cursor`,icon:`apps/cursor\.png`,darwinDetect:\(\)=>[A-Za-z_$][\w$]*\(\)\?\.electronBin\?\?null,win32Detect:[A-Za-z_$][\w$]*)(,darwinEnv:)',
+    rf'\1,linuxDetect:()=>{detect_func}(`cursor`)\2',
     content,
     count=1,
 )
-if cursor_count != 1 and "id:`cursor`" in content and "linuxDetect:()=>Rp(`cursor`)" not in content:
+if cursor_count != 1 and "id:`cursor`" in content and f"linuxDetect:()=>{detect_func}(`cursor`)" not in content:
     print("WARN: Could not add Linux target args for cursor", file=sys.stderr)
 
 for target_id, commands in [
@@ -1087,6 +1222,76 @@ if "id:`zed`" in content and "linux:{label:`Zed`" not in content:
         "win32:{label:`Zed`,icon:`apps/zed.png`,kind:`editor`,detect:nT,args:Tw},linux:{label:`Zed`,icon:`apps/zed.png`,kind:`editor`,detect:()=>Rp(`zed`),args:Tw}}};",
         1,
     )
+
+if "id:`zed`" in content and "linux:{label:`Zed`" not in content:
+    marker = content.find("id:`zed`")
+    block_start = max(content.rfind("var ", 0, marker), content.rfind("let ", 0, marker), content.rfind("const ", 0, marker))
+    object_start = content.find("{", block_start) if block_start != -1 else -1
+
+    def find_matching_brace(source: str, start: int) -> int:
+        depth = 0
+        in_string = None
+        escaped = False
+        for index in range(start, len(source)):
+            char = source[index]
+            if in_string is not None:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == in_string:
+                    in_string = None
+                continue
+            if char in ("'", '"', "`"):
+                in_string = char
+            elif char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    return index
+        return -1
+
+    object_end = find_matching_brace(content, object_start) if object_start != -1 else -1
+    if block_start != -1 and object_start != -1 and object_end != -1:
+        block_end = object_end + 2 if content[object_end + 1 : object_end + 2] == ";" else object_end + 1
+        block = content[block_start:block_end]
+        args_match = re.search(r'\bargs:([A-Za-z_$][\w$]*)', block)
+        detect_match = re.search(r'\bdarwin:\{[^{}]*\bdetect:([A-Za-z_$][\w$]*)', block)
+        lookup_match = re.search(
+            rf'function {re.escape(detect_match.group(1))}\(\)\{{return ([A-Za-z_$][\w$]*)\(`zed`\)',
+            content,
+        ) if detect_match else None
+        insertion_point = block.rfind("}}};")
+        if insertion_point == -1:
+            insertion_point = block.rfind("}}}")
+        if args_match and lookup_match and insertion_point != -1:
+            lookup_func = lookup_match.group(1)
+            linux_zed = (
+                f",linux:{{label:`Zed`,icon:`apps/zed.png`,kind:`editor`,detect:()=>{lookup_func}(`zed`)??"
+                f"{lookup_func}(`zeditor`)??{lookup_func}(`zedit`)??{lookup_func}(`zed-cli`),args:{args_match.group(1)}}}"
+            )
+            patched_block = block[: insertion_point + 1] + linux_zed + block[insertion_point + 1 :]
+            content = content[:block_start] + patched_block + content[block_end:]
+        else:
+            print("WARN: Could not add Linux target args for zed", file=sys.stderr)
+    else:
+        print("WARN: Could not add Linux target args for zed", file=sys.stderr)
+
+if "id:`zed`" in content and "linux:{label:`Zed`" in content and "`zeditor`" not in content:
+    zed_detect_pattern = re.compile(
+        r'(linux:\{label:`Zed`,icon:`apps/zed\.png`,kind:`editor`,detect:\(\)=>)([A-Za-z_$][\w$]*)\(`zed`\)(,args:[A-Za-z_$][\w$]*\})'
+    )
+    content, zed_count = zed_detect_pattern.subn(
+        lambda match: (
+            f"{match.group(1)}{match.group(2)}(`zed`)??{match.group(2)}(`zeditor`)??"
+            f"{match.group(2)}(`zedit`)??{match.group(2)}(`zed-cli`){match.group(3)}"
+        ),
+        content,
+        count=1,
+    )
+    if zed_count != 1 and "id:`zed`" in content:
+        print("WARN: Could not add Linux target args for zed aliases", file=sys.stderr)
 
 with open(path, "w", encoding="utf-8") as handle:
     handle.write(content)
