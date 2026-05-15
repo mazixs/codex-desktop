@@ -7,7 +7,7 @@ This document describes the technical implementation details of adapting the mac
 The original application (`app.asar`) is distributed with pre-compiled `.node` modules targeting Darwin (macOS) `arm64/x64`. 
 The build script performs a complete extraction, removes these binaries, and dynamically recompiles them for Linux x64:
 
-* `better-sqlite3`: Removed and re-installed via npm (`v12.9.0`), then compiled via `@electron/rebuild`.
+* `better-sqlite3`: Removed and re-installed via npm (`v12.10.0`), then compiled via `@electron/rebuild`.
 * `node-pty`: Replaced the macOS PTY bridge with a native Linux PTY implementation (`v1.1.0`), built against Electron headers.
 * `sparkle`: The auto-updates framework is entirely macOS-specific and deleted outright from the build.
 
@@ -29,7 +29,7 @@ macOS relies on native compositor features (`vibrancy`, `backgroundMaterial`) fo
 
 | Patch | Occurrences | Purpose |
 |-------|-------------|--------|
-| `Sy=\`#00000000\`` / `So="#00000000"` / `Hf=\`#00000000\`` → opaque dark | 1 | Replace fully-transparent background color with opaque dark. The minified variable name changes across upstream builds; this value is the default `backgroundColor` passed to every `BrowserWindow`. |
+| Linux branch in the background helper | 1 | Return an opaque Linux background using upstream dark/light colors (`prefersDarkColors ? dark : light`) while preserving the transparent fallback for window types that intentionally use it. |
 | `transparent:!0` → `transparent:!1` | 2 | Disable transparent frameless windows (hotkey overlay windows). |
 | `vibrancy:\`menu\`` → `vibrancy:null` | 3 | Neutralize macOS vibrancy effect for primary, secondary, and HUD windows. |
 | `visualEffectState:\`active\`` → `visualEffectState:null` | 1 | Neutralize macOS visual effect on HUD window. |

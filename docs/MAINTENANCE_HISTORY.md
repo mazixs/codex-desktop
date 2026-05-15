@@ -2,6 +2,28 @@
 
 This document records recent repository maintenance work that changed the Linux adaptation layer.
 
+## 2026-05-15
+
+### Upstream Refresh
+
+- Refreshed against the upstream DMG (Codex Desktop `26.513.20950`).
+- DMG SHA-256: `5937a9b4df03f611767dfbe524aa697cb4ce26be59d218e89070a7197e9dae4d`.
+- Bumped Electron runtime to `42.0.1`.
+- Kept `@openai/codex` CLI at current npm latest `0.130.0`.
+- Bumped `better-sqlite3` native build to `12.10.0` and added an Electron 42/V8 sandbox compatibility patch for the transient rebuild copy.
+
+### Plugin Updates
+
+- Updated bundled plugin copying for upstream's new plugin names: `browser`, `chrome`, and `latex`.
+- Kept `computer-use` excluded because upstream still ships it as a macOS app bundle.
+- Kept the Browser/Chrome `site_status` request compatible with Linux `node_repl` allowlisting by stripping request metadata params.
+
+### Validation
+
+- `rm -rf codex_extracted`
+- `./codex-linux-build/build.sh --clean --skip-download --dmg Codex.dmg`
+- `./tests/build-smoke.sh`
+
 ## 2026-05-08
 
 ### Upstream Refresh
@@ -43,7 +65,7 @@ Migrated the main-bundle patches from exact string matching to regex-based detec
 ### Browser Use Plugin Support
 
 - Added copying of `plugins/openai-bundled` resources from the upstream DMG into the build output.
-- Copies both `browser-use` and `latex-tectonic` plugins; the bundled `marketplace.json` exposes both.
+- Copies upstream bundled plugin resources into the Linux build; newer DMGs expose `browser`, `chrome`, and `latex`.
 - The launcher (`start.sh`) exports `CODEX_ELECTRON_RESOURCES_PATH`, `CODEX_ELECTRON_BUNDLED_PLUGINS_RESOURCES_PATH`, `CODEX_BROWSER_USE_NODE_PATH`, and `CODEX_NODE_REPL_PATH` with a fallback to the system `node` when the upstream Mach-O binaries cannot be used.
 - Added a `node_repl` symlink fallback in the build output pointing to the system `node` when the upstream `node_repl` is not a Linux ELF executable.
 

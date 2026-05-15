@@ -15,7 +15,7 @@ WEBVIEW_SERVER_TEMPLATE="$SCRIPT_DIR/webview-server.js"
 DEFAULT_DMG_FILE="$PROJECT_ROOT/Codex.dmg"
 DMG_FILE="$DEFAULT_DMG_FILE"
 DMG_URL="${CODEX_DMG_URL:-https://persistent.oaistatic.com/codex-app-prod/Codex.dmg}"
-ELECTRON_VERSION="${ELECTRON_VERSION:-41.3.0}"
+ELECTRON_VERSION="${ELECTRON_VERSION:-42.0.1}"
 BUILD_ARCH="${BUILD_ARCH:-x64}"
 BUILD_PLATFORM="linux"
 APP_DESKTOP_ID="codex-desktop"
@@ -209,10 +209,29 @@ extract_app() {
         exit 1
     fi
 
+    local app_asar
+    app_asar="$(find "$EXTRACTED_DIR" -path '*/Codex.app/Contents/Resources/app.asar' -type f | sort | head -n 1)"
+    if [ -z "$app_asar" ]; then
+        err "app.asar not found under $EXTRACTED_DIR"
+        exit 1
+    fi
+
     log "Extracting app.asar..."
     "$SCRIPT_DIR/node_modules/.bin/asar" extract \
-        "$EXTRACTED_DIR/Codex Installer/Codex.app/Contents/Resources/app.asar" \
+        "$app_asar" \
         "$APP_UNPACKED"
+}
+
+resolve_upstream_resources_dir() {
+    local app_asar
+
+    app_asar="$(find "$EXTRACTED_DIR" -path '*/Codex.app/Contents/Resources/app.asar' -type f | sort | head -n 1)"
+    if [ -z "$app_asar" ]; then
+        err "Unable to locate upstream Codex.app resources under $EXTRACTED_DIR"
+        exit 1
+    fi
+
+    dirname "$app_asar"
 }
 
 copy_required_path() {
@@ -238,6 +257,137 @@ copy_required_dir_contents() {
 
     mkdir -p "$destination_dir"
     cp -a "$source_dir/." "$destination_dir/"
+}
+
+patch_node_repl_glibc_pidfd_symbols() {
+    local file="$1"
+    python3 - "$file" <<'PY'
+from pathlib import Path
+import struct
+import sys
+
+path = Path(sys.argv[1])
+data = bytearray(path.read_bytes())
+
+def fail(message):
+    print(message, file=sys.stderr)
+    sys.exit(1)
+
+def read_cstr(blob, offset):
+    if offset < 0 or offset >= len(blob):
+        return ""
+    end = blob.find(b"\0", offset)
+    if end == -1:
+        end = len(blob)
+    return blob[offset:end].decode("utf-8", "replace")
+
+def elf_hash(name):
+    value = 0
+    for byte in name.encode("utf-8"):
+        value = (value << 4) + byte
+        high = value & 0xF0000000
+        if high:
+            value ^= high >> 24
+            value &= ~high
+    return value & 0xFFFFFFFF
+
+if len(data) < 64 or data[:4] != b"\x7fELF" or data[4] != 2 or data[5] != 1:
+    sys.exit(0)
+if struct.unpack_from("<H", data, 18)[0] != 62:
+    sys.exit(0)
+
+e_shoff = struct.unpack_from("<Q", data, 40)[0]
+e_shentsize = struct.unpack_from("<H", data, 58)[0]
+e_shnum = struct.unpack_from("<H", data, 60)[0]
+e_shstrndx = struct.unpack_from("<H", data, 62)[0]
+if e_shoff == 0 or e_shentsize < 64 or e_shnum == 0 or e_shstrndx >= e_shnum:
+    sys.exit(0)
+if e_shoff + (e_shnum * e_shentsize) > len(data):
+    fail("ELF section table is outside file bounds")
+
+sections = []
+for index in range(e_shnum):
+    offset = e_shoff + (index * e_shentsize)
+    fields = struct.unpack_from("<IIQQQQIIQQ", data, offset)
+    sections.append({"name_offset": fields[0], "offset": fields[4], "size": fields[5], "entsize": fields[9]})
+
+shstr = sections[e_shstrndx]
+shstr_data = data[shstr["offset"]:shstr["offset"] + shstr["size"]]
+by_name = {read_cstr(shstr_data, section["name_offset"]): section for section in sections}
+dynsym = by_name.get(".dynsym")
+dynstr = by_name.get(".dynstr")
+versym = by_name.get(".gnu.version")
+verneed = by_name.get(".gnu.version_r")
+if not dynsym or not dynstr or not versym or not verneed:
+    sys.exit(0)
+if dynsym["entsize"] < 24:
+    fail("ELF dynamic symbol table has an unsupported entry size")
+
+dynstr_data = data[dynstr["offset"]:dynstr["offset"] + dynstr["size"]]
+glibc_234_name_offset = dynstr_data.find(b"GLIBC_2.34\0")
+if glibc_234_name_offset < 0:
+    sys.exit(0)
+glibc_234_hash = elf_hash("GLIBC_2.34")
+
+version_names = {}
+version_aux_offsets = {}
+cursor = verneed["offset"]
+end = verneed["offset"] + verneed["size"]
+while cursor and cursor + 16 <= end:
+    vn_version, vn_cnt, _vn_file, vn_aux, vn_next = struct.unpack_from("<HHIII", data, cursor)
+    if vn_version == 0 or vn_cnt == 0:
+        break
+    aux_cursor = cursor + vn_aux
+    for _ in range(vn_cnt):
+        if aux_cursor + 16 > end:
+            fail("ELF version need auxiliary record is outside section bounds")
+        _hash, _flags, other, name_offset, aux_next = struct.unpack_from("<IHHII", data, aux_cursor)
+        version_names[other] = read_cstr(dynstr_data, name_offset)
+        version_aux_offsets[other] = aux_cursor
+        if aux_next == 0:
+            break
+        aux_cursor += aux_next
+    if vn_next == 0:
+        break
+    cursor += vn_next
+
+target_names = {"pidfd_spawnp", "pidfd_getpid"}
+target_version_ids = set()
+non_target_refs = []
+patched_symbols = 0
+for index in range(dynsym["size"] // dynsym["entsize"]):
+    symbol_offset = dynsym["offset"] + (index * dynsym["entsize"])
+    if symbol_offset + 24 > len(data):
+        fail("ELF dynamic symbol entry is outside file bounds")
+    name_offset, info, _other, shndx = struct.unpack_from("<IBBH", data, symbol_offset)
+    name = read_cstr(dynstr_data, name_offset)
+    versym_offset = versym["offset"] + (index * 2)
+    if versym_offset + 2 > versym["offset"] + versym["size"]:
+        fail("ELF version symbol entry is outside section bounds")
+    version_id = struct.unpack_from("<H", data, versym_offset)[0] & 0x7FFF
+    if version_names.get(version_id) != "GLIBC_2.39":
+        continue
+    if name in target_names and (info >> 4) == 2 and shndx == 0:
+        struct.pack_into("<H", data, versym_offset, 1)
+        target_version_ids.add(version_id)
+        patched_symbols += 1
+    else:
+        non_target_refs.append(name)
+
+if non_target_refs:
+    fail("non-pidfd GLIBC_2.39 references remain: " + ", ".join(sorted(set(non_target_refs))))
+
+for version_id in target_version_ids:
+    aux_offset = version_aux_offsets.get(version_id)
+    if aux_offset is None:
+        fail("GLIBC_2.39 version need record was not found")
+    struct.pack_into("<I", data, aux_offset, glibc_234_hash)
+    struct.pack_into("<I", data, aux_offset + 8, glibc_234_name_offset)
+
+if patched_symbols:
+    path.write_bytes(data)
+    print("patched")
+PY
 }
 
 resolve_main_entry_path() {
@@ -317,35 +467,65 @@ PY
     fi
 
     # Copy Browser Use plugin resources from upstream DMG
-    local upstream_resources="$EXTRACTED_DIR/Codex Installer/Codex.app/Contents/Resources"
+    local upstream_resources
+    upstream_resources="$(resolve_upstream_resources_dir)"
     local source_plugin="$upstream_resources/plugins/openai-bundled"
     local source_marketplace="$source_plugin/.agents/plugins/marketplace.json"
     if [ -d "$source_plugin" ] && [ -f "$source_marketplace" ]; then
         log "Copying bundled plugin resources..."
         mkdir -p "$BUILD_DIR/plugins/openai-bundled/plugins" "$BUILD_DIR/plugins/openai-bundled/.agents/plugins"
-        # Copy browser-use plugin
-        if [ -d "$source_plugin/plugins/browser-use" ]; then
-            cp -R "$source_plugin/plugins/browser-use" "$BUILD_DIR/plugins/openai-bundled/plugins/browser-use"
-        fi
-        # Copy latex-tectonic plugin (expected by bundled marketplace)
-        if [ -d "$source_plugin/plugins/latex-tectonic" ]; then
-            cp -R "$source_plugin/plugins/latex-tectonic" "$BUILD_DIR/plugins/openai-bundled/plugins/latex-tectonic"
-        fi
-        # Filter marketplace to browser-use and latex-tectonic (linux-safe plugins)
-        node - "$source_marketplace" "$BUILD_DIR/plugins/openai-bundled/.agents/plugins/marketplace.json" <<'NODE'
+        # Copy Linux-safe bundled plugins. Upstream renamed browser-use/latex-
+        # tectonic to browser/latex in newer DMGs; keep both naming schemes.
+        for plugin_name in browser browser-use chrome latex latex-tectonic; do
+            if [ -d "$source_plugin/plugins/$plugin_name" ]; then
+                cp -R "$source_plugin/plugins/$plugin_name" "$BUILD_DIR/plugins/openai-bundled/plugins/$plugin_name"
+            fi
+        done
+        # Filter marketplace to Linux-safe bundled plugins. computer-use is a
+        # macOS app bundle in upstream and needs a separate Linux backend.
+        node - "$source_marketplace" "$BUILD_DIR/plugins/openai-bundled/.agents/plugins/marketplace.json" "$BUILD_DIR/plugins/openai-bundled" <<'NODE'
 const fs = require("fs");
 const path = require("path");
 const sourcePath = process.argv[2];
 const destPath = process.argv[3];
+const bundleRoot = process.argv[4];
 const marketplace = JSON.parse(fs.readFileSync(sourcePath, "utf8"));
-const allowed = new Set(["browser-use", "latex-tectonic"]);
-marketplace.plugins = (marketplace.plugins || []).filter((p) => allowed.has(p.name));
+const allowed = new Set(["browser", "browser-use", "chrome", "latex", "latex-tectonic"]);
+const plugins = (marketplace.plugins || []).filter((p) => allowed.has(p.name));
+const seen = new Set(plugins.map((plugin) => plugin.name));
+for (const name of allowed) {
+  const pluginDir = path.join(bundleRoot, "plugins", name);
+  if (seen.has(name) || !fs.existsSync(pluginDir)) {
+    continue;
+  }
+  let category = "Productivity";
+  const manifestPath = path.join(pluginDir, ".codex-plugin", "plugin.json");
+  try {
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    if (typeof manifest?.interface?.category === "string" && manifest.interface.category.length > 0) {
+      category = manifest.interface.category;
+    }
+  } catch {}
+  plugins.push({
+    name,
+    source: {
+      source: "local",
+      path: `./plugins/${name}`,
+    },
+    policy: {
+      installation: "AVAILABLE",
+      authentication: "ON_INSTALL",
+    },
+    category,
+  });
+}
+marketplace.plugins = plugins;
 fs.mkdirSync(path.dirname(destPath), { recursive: true });
 fs.writeFileSync(destPath, `${JSON.stringify(marketplace, null, 2)}\n`);
 NODE
 
-        local browser_client="$BUILD_DIR/plugins/openai-bundled/plugins/browser-use/scripts/browser-client.mjs"
-        if [ -f "$browser_client" ]; then
+        for browser_client in "$BUILD_DIR"/plugins/openai-bundled/plugins/{browser,browser-use,chrome}/scripts/browser-client.mjs; do
+            [ -f "$browser_client" ] || continue
             # Linux node_repl currently allowlists /backend-api/aura/site_status
             # only with the site_url query param. Newer Browser Use clients add
             # request metadata params, which makes the safety check itself fail.
@@ -361,29 +541,12 @@ if "url_request_source" not in content:
     sys.exit(0)
 
 pattern = re.compile(
-    r'function\s+([A-Za-z_$][\w$]*)\(([A-Za-z_$][\w$]*),([A-Za-z_$][\w$]*)\)'
-    r'\{let\s+([A-Za-z_$][\w$]*)=new URL\(\2\.origin\);'
-    r'\4\.pathname=\2\.pathname,\4\.search=\2\.search;'
-    r'let\s+([A-Za-z_$][\w$]*)=new URL\(`\$\{([A-Za-z_$][\w$]*)\}/aura/site_status`\);'
-    r'return\s+\5\.searchParams\.set\("site_url",\4\.toString\(\)\),'
-    r'\5\.searchParams\.set\("url_request_source","codex_browser_use"\),'
-    r'\3\?\.session_id!=null&&\5\.searchParams\.set\("conversation_id",\3\.session_id\),'
-    r'\3\?\.turn_id!=null&&\5\.searchParams\.set\("turn_id",\3\.turn_id\),'
-    r'\5\.toString\(\)\}'
+    r',([A-Za-z_$][\w$]*)\.searchParams\.set\("url_request_source",[^)]*\)'
+    r'(?:,[A-Za-z_$][\w$]*\?\.session_id!=null&&\1\.searchParams\.set\("conversation_id",[A-Za-z_$][\w$]*\.session_id\))?'
+    r'(?:,[A-Za-z_$][\w$]*\?\.turn_id!=null&&\1\.searchParams\.set\("turn_id",[A-Za-z_$][\w$]*\.turn_id\))?'
 )
 
-def replacement(match):
-    func, url_arg, meta_arg, site_url, endpoint_url, base_url = match.groups()
-    return (
-        f"function {func}({url_arg},{meta_arg})"
-        f"{{let {site_url}=new URL({url_arg}.origin);"
-        f"{site_url}.pathname={url_arg}.pathname,{site_url}.search={url_arg}.search;"
-        f"let {endpoint_url}=new URL(`${{{base_url}}}/aura/site_status`);"
-        f"return {endpoint_url}.searchParams.set(\"site_url\",{site_url}.toString()),"
-        f"{endpoint_url}.toString()}}"
-    )
-
-content, count = pattern.subn(replacement, content, count=1)
+content, count = pattern.subn("", content, count=1)
 if count != 1:
     print("ERROR: Could not patch Browser Use site_status allowlist request", file=sys.stderr)
     sys.exit(1)
@@ -391,10 +554,87 @@ if count != 1:
 with open(path, "w", encoding="utf-8") as handle:
     handle.write(content)
 PY
+        done
+
+        local chrome_browser_client="$BUILD_DIR/plugins/openai-bundled/plugins/chrome/scripts/browser-client.mjs"
+        if [ -f "$chrome_browser_client" ]; then
+            python3 - "$chrome_browser_client" <<'PY'
+import re
+import sys
+
+path = sys.argv[1]
+with open(path, "r", encoding="utf-8") as handle:
+    content = handle.read()
+
+if "Library/Application Support/Google/Chrome" not in content:
+    sys.exit(0)
+
+if "codexLinuxChromeUserDataDirectories" not in content:
+    root_match = re.search(
+        r'var ([A-Za-z_$][\w$]*)=([A-Za-z_$][\w$]*)\(([A-Za-z_$][\w$]*)\(\),([A-Za-z_$][\w$]*)\(\)==="win32"\?"AppData\\\\Local\\\\Google\\\\Chrome\\\\User Data":"Library/Application Support/Google/Chrome"\);',
+        content,
+    )
+    if not root_match:
+        print("WARN: Could not patch Chrome Linux profile roots", file=sys.stderr)
+    else:
+        root_var, path_func, home_func, platform_func = root_match.groups()
+        replacement = (
+            f'var {root_var}={path_func}({home_func}(),{platform_func}()==="win32"?"AppData\\\\Local\\\\Google\\\\Chrome\\\\User Data":"Library/Application Support/Google/Chrome"),'
+            f'codexLinuxChromeUserDataDirectories=()=>{platform_func}()==="linux"?['
+            f'{path_func}({home_func}(),".config","BraveSoftware","Brave-Browser"),'
+            f'{path_func}({home_func}(),".config","google-chrome"),'
+            f'{path_func}({home_func}(),".config","chromium")]:[{root_var}];'
+        )
+        content = content.replace(root_match.group(0), replacement, 1)
+
+metadata_match = re.search(
+    r'var ([A-Za-z_$][\w$]*)=async\(([A-Za-z_$][\w$]*),([A-Za-z_$][\w$]*)\)=>\{let ([A-Za-z_$][\w$]*)=([A-Za-z_$][\w$]*)\(([A-Za-z_$][\w$]*),\2,"Local Extension Settings",\3\);',
+    content,
+)
+if metadata_match:
+    func, profile_arg, extension_arg, local_var, path_func, root_var = metadata_match.groups()
+    profile_root_arg = "codexLinuxProfileRoot"
+    replacement = (
+        f'var {func}=async({profile_arg},{extension_arg},{profile_root_arg}={root_var})=>'
+        f'{{let {local_var}={path_func}({profile_root_arg},{profile_arg},"Local Extension Settings",{extension_arg});'
+    )
+    content = content.replace(metadata_match.group(0), replacement, 1)
+
+ident = r'[A-Za-z_$][\w$]*'
+profile_match = re.search(
+    rf'(?P<find>{ident})=async\((?P<ext>{ident}),(?P<inst>{ident})\)=>\(await (?P<list>{ident})\((?P=ext)\)\)\.find\({ident}=>{ident}\.instanceId===(?P=inst)\)\|\|null,'
+    rf'(?P=list)=async (?P<listarg>{ident})=>\{{let {ident}=await (?P<read>{ident})\(\);return await Promise\.all\({ident}\.map\(async {ident}=>\(\{{\.\.\.{ident},instanceId:await (?P<meta>{ident})\({ident}\.id,(?P=listarg)\)\.catch\({ident}=>\((?P<log>{ident})\({ident}\),null\)\)\}}\)\)\)\}},'
+    rf'(?P=read)=async\(\)=>\{{let {ident}=(?P<path>{ident})\((?P<root>{ident}),"Local State"\),(?P<json>{ident})=JSON\.parse\(await (?P<readfile>{ident})\({ident},"utf8"\)\);return (?P=json)\.profile\.profiles_order\.map\(\({ident},{ident}\)=>\{{let {ident}=(?P=json)\.profile\.info_cache\[{ident}\];return {ident}\?\{{id:{ident},name:{ident}\.name,isLastUsed:(?P=json)\.profile\.last_used==={ident},orderingIndex:{ident},avatarUrl:{ident}\.avatar_icon\}}:null\}}\)\.filter\({ident}=>!!{ident}\)\}}',
+    content,
+)
+if profile_match and "userDataDir:" not in profile_match.group(0):
+    find_func = profile_match.group("find")
+    ext_arg = profile_match.group("ext")
+    instance_arg = profile_match.group("inst")
+    list_func = profile_match.group("list")
+    extension_arg = profile_match.group("listarg")
+    read_profiles_func = profile_match.group("read")
+    metadata_func = profile_match.group("meta")
+    path_func = profile_match.group("path")
+    read_file_func = profile_match.group("readfile")
+    replacement = (
+        f'{find_func}=async({ext_arg},{instance_arg})=>{{let r=(await {list_func}({ext_arg})).filter(n=>n.instanceId==={instance_arg});return r.length===1?r[0]:null}},'
+        f'{list_func}=async {extension_arg}=>{{let e=[];for(let r of codexLinuxChromeUserDataDirectories())try{{let n=await {read_profiles_func}(r);'
+        f'e.push(...await Promise.all(n.map(async o=>({{...o,userDataDir:r,instanceId:await {metadata_func}(o.id,{extension_arg},r).catch(i=>(te(i),null))}}))))}}catch(n){{te(n)}}return e}},'
+        f'{read_profiles_func}=async r=>{{let n={path_func}(r,"Local State"),o=JSON.parse(await {read_file_func}(n,"utf8"));'
+        f'return o.profile.profiles_order.map((i,s)=>{{let a=o.profile.info_cache[i];return a?{{id:i,name:a.name,isLastUsed:o.profile.last_used===i,orderingIndex:s,avatarUrl:a.avatar_icon}}:null}}).filter(i=>!!i)}}'
+    )
+    content = content.replace(profile_match.group(0), replacement, 1)
+elif "codexLinuxChromeUserDataDirectories" in content and "userDataDir:" not in content and "profiles_order" in content:
+    print("WARN: Could not patch Chrome Linux profile metadata matching", file=sys.stderr)
+
+with open(path, "w", encoding="utf-8") as handle:
+    handle.write(content)
+PY
         fi
 
-        local browser_plugin_json="$BUILD_DIR/plugins/openai-bundled/plugins/browser-use/.codex-plugin/plugin.json"
-        if [ -f "$browser_plugin_json" ]; then
+        for browser_plugin_json in "$BUILD_DIR"/plugins/openai-bundled/plugins/{browser,browser-use,chrome,latex,latex-tectonic}/.codex-plugin/plugin.json; do
+            [ -f "$browser_plugin_json" ] || continue
             node - "$browser_plugin_json" <<'NODE'
 const fs = require("fs");
 const pluginPath = process.argv[2];
@@ -404,7 +644,7 @@ if (typeof plugin.version === "string" && !plugin.version.includes("-linux.")) {
   fs.writeFileSync(pluginPath, `${JSON.stringify(plugin, null, 2)}\n`);
 }
 NODE
-        fi
+        done
     fi
 
     # Stage a real Linux node_repl for Browser Use if upstream binary is not ELF
@@ -435,6 +675,16 @@ NODE
                 warn "Failed to download node_repl; Browser Use may not function"
                 rm -rf "$tmpdir"
             fi
+        fi
+    fi
+    if [ -x "$dist_node_repl" ]; then
+        local node_repl_patch_status
+        if node_repl_patch_status="$(patch_node_repl_glibc_pidfd_symbols "$dist_node_repl" 2>&1)"; then
+            if [ "$node_repl_patch_status" = "patched" ]; then
+                log "Patched node_repl pidfd symbols for glibc 2.34+"
+            fi
+        else
+            warn "Could not patch node_repl glibc compatibility: $node_repl_patch_status"
         fi
     fi
 
@@ -502,7 +752,7 @@ rebuild_native_modules() {
   "version": "1.0.0",
   "private": true,
   "dependencies": {
-    "better-sqlite3": "12.9.0",
+    "better-sqlite3": "12.10.0",
     "node-pty": "1.1.0"
   }
 }
@@ -511,6 +761,35 @@ EOF
     (
         cd "$NATIVE_BUILD_DIR"
         npm install --no-audit --no-fund --loglevel=error
+        python3 - "$NATIVE_BUILD_DIR/node_modules/better-sqlite3" <<'PY'
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1])
+
+def replace(path: Path, old: str, new: str) -> None:
+    content = path.read_text(encoding="utf-8")
+    if old in content:
+        path.write_text(content.replace(old, new), encoding="utf-8")
+
+# Electron 42 enables V8 sandboxed external pointers. better-sqlite3 12.x
+# still uses the old default-tag overloads, so patch the vendored rebuild copy.
+replace(
+    root / "src" / "util" / "macros.cpp",
+    "info.Data().As<v8::External>()->Value()",
+    "info.Data().As<v8::External>()->Value(v8::kExternalPointerTypeTagDefault)",
+)
+replace(
+    root / "src" / "better_sqlite3.cpp",
+    "v8::External::New(isolate, addon)",
+    "v8::External::New(isolate, addon, v8::kExternalPointerTypeTagDefault)",
+)
+replace(
+    root / "src" / "util" / "helpers.cpp",
+    "\t\tfunc,\n\t\t0,\n\t\tdata",
+    "\t\tfunc,\n\t\tnullptr,\n\t\tdata",
+)
+PY
         "$SCRIPT_DIR/node_modules/.bin/electron-rebuild" \
             -v "$ELECTRON_VERSION" \
             -m "$NATIVE_BUILD_DIR" \
@@ -657,7 +936,13 @@ patch_main_js() {
 
     # Keep Browser Use node_repl trust metadata aligned with the packaged
     # browser client after Linux compatibility patches.
-    local browser_client="$BUILD_DIR/plugins/openai-bundled/plugins/browser-use/scripts/browser-client.mjs"
+    local browser_client=""
+    for candidate in "$BUILD_DIR"/plugins/openai-bundled/plugins/{browser,browser-use}/scripts/browser-client.mjs; do
+        if [ -f "$candidate" ]; then
+            browser_client="$candidate"
+            break
+        fi
+    done
     if [ -f "$browser_client" ]; then
         local browser_client_hash
         browser_client_hash="$(sha256sum "$browser_client" | awk '{print $1}')"
@@ -679,6 +964,48 @@ with open(path, "w", encoding="utf-8") as handle:
     handle.write(content)
 PY
     fi
+
+    # Ensure the bundled Chrome plugin behaves like bundled Browser Use and is
+    # installed automatically when the external browser feature gate is enabled.
+    python3 - "$main_bundle" <<'PY'
+import re
+import sys
+
+path = sys.argv[1]
+with open(path, "r", encoding="utf-8") as handle:
+    content = handle.read()
+
+chrome_var = None
+chrome_var_match = re.search(r'([A-Za-z_$][\w$]*)=(?:`chrome`|"chrome"|\'chrome\')', content)
+if chrome_var_match:
+    chrome_var = chrome_var_match.group(1)
+
+name_expr = r'(?:`chrome`|"chrome"|\'chrome\'|[A-Za-z_$][\w$]*)'
+gate_pattern = re.compile(
+    rf'\{{([^{{}}]*?)(installWhenMissing:!0,)?name:({name_expr}),(isAvailable|isEnabled):\(\{{([^}}]*)\}}\)=>([^{{}}]*?externalBrowserUseAllowed[^{{}}]*?)(,migrate:[A-Za-z_$][\w$]*)?\}}'
+)
+
+def is_chrome_name(expr: str) -> bool:
+    return expr in ("`chrome`", '"chrome"', "'chrome'") or (chrome_var is not None and expr == chrome_var)
+
+patched = 0
+def replace_gate(match: re.Match[str]) -> str:
+    global patched
+    prefix, existing, name, prop, params, expression, migrate = match.groups()
+    if not is_chrome_name(name):
+        return match.group(0)
+    if existing is not None or "installWhenMissing:!0" in prefix:
+        return match.group(0)
+    patched += 1
+    return f"{{{prefix}installWhenMissing:!0,name:{name},{prop}:({{{params}}})=>{expression}{migrate or ''}}}"
+
+content = gate_pattern.sub(replace_gate, content)
+if patched == 0 and "externalBrowserUseAllowed" in content and "`chrome`" in content and "installWhenMissing:!0,name:" not in content:
+    print("WARN: Could not patch Chrome plugin auto-install gate", file=sys.stderr)
+
+with open(path, "w", encoding="utf-8") as handle:
+    handle.write(content)
+PY
 
     # =====================================================================
     # --- Disable macOS/Windows-specific window appearance properties ---
@@ -713,32 +1040,53 @@ if not color_match:
 
 transparent_var, dark_var, light_var = color_match.groups()
 
-# Replace transparent var with opaque dark fallback
-old_transparent = f"{transparent_var}=`#00000000`"
-new_transparent = f"{transparent_var}=`#1e1e1e`"
-if old_transparent in content:
-    content = content.replace(old_transparent, new_transparent)
-
-# Find BrowserWindow background function signature
+# Find BrowserWindow background function signature. Upstream has used both a
+# win32-first branch and, in Electron 42 builds, an opaqueWindowsEnabled branch
+# before the win32 mica fallback.
 func_match = re.search(
-    r'function\s+([A-Za-z_$][\w$]*)\(\{platform:([A-Za-z_$][\w$]*),appearance:([A-Za-z_$][\w$]*),opaqueWindowsEnabled:[A-Za-z_$][\w$]*,prefersDarkColors:([A-Za-z_$][\w$]*)\}\)\{return\s*\2===`win32`&&!([A-Za-z_$][\w$]*)\(\3\)',
+    r'function\s+([A-Za-z_$][\w$]*)\(\{platform:([A-Za-z_$][\w$]*),appearance:([A-Za-z_$][\w$]*),opaqueWindowsEnabled:([A-Za-z_$][\w$]*),prefersDarkColors:([A-Za-z_$][\w$]*)\}\)\{return\b',
     content
 )
 if not func_match:
     print("WARN: Could not find BrowserWindow background function signature -- skipping opaque background patch", file=sys.stderr)
     sys.exit(0)
 
-func_name, platform_param, appearance_param, dark_colors_param, transparent_predicate = func_match.groups()
+func_name, platform_param, appearance_param, opaque_param, dark_colors_param = func_match.groups()
 
-# Find the mica→null fallback branch and inject Linux opaque variant
-bg_needle = f"backgroundMaterial:`mica`}}:{{backgroundColor:{transparent_var},backgroundMaterial:null}}}}"
-bg_replacement = f"backgroundMaterial:`mica`}}:{platform_param}===`linux`&&!{transparent_predicate}({appearance_param})?{{backgroundColor:{dark_colors_param}?{dark_var}:{light_var},backgroundMaterial:null}}:{{backgroundColor:{transparent_var},backgroundMaterial:null}}}}"
+func_start = func_match.start()
+func_end = content.find("}function", func_start)
+if func_end == -1:
+    print("WARN: Could not find BrowserWindow background function boundary -- skipping opaque background patch", file=sys.stderr)
+    sys.exit(0)
 
-if bg_needle not in content:
+func_body = content[func_start:func_end]
+predicate_match = re.search(
+    rf'`win32`&&!([A-Za-z_$][\w$]*)\({re.escape(appearance_param)}\)\?'
+    rf'\{{backgroundColor:{re.escape(transparent_var)},backgroundMaterial:`mica`\}}',
+    func_body
+)
+if not predicate_match:
+    print("WARN: Could not find BrowserWindow background fallback branch -- skipping opaque background patch", file=sys.stderr)
+    sys.exit(0)
+
+transparent_predicate = predicate_match.group(1)
+
+bg_needle = (
+    f"{platform_param}===`win32`&&!{transparent_predicate}({appearance_param})?"
+    f"{{backgroundColor:{transparent_var},backgroundMaterial:`mica`}}:"
+)
+bg_replacement = (
+    f"{platform_param}===`linux`&&!{transparent_predicate}({appearance_param})?"
+    f"{{backgroundColor:{dark_colors_param}?{dark_var}:{light_var},backgroundMaterial:null}}:"
+    f"{bg_needle}"
+)
+
+if bg_needle not in func_body:
     print("WARN: Could not find backgroundMaterial needle -- skipping opaque background patch", file=sys.stderr)
     sys.exit(0)
 
-content = content.replace(bg_needle, bg_replacement)
+func_body = func_body.replace(bg_needle, bg_replacement, 1)
+content = content[:func_start] + func_body + content[func_end:]
 open(path, "w").write(content)
 PY
 
@@ -1423,7 +1771,8 @@ PY
 }
 
 extract_icon() {
-    local icns_file="$EXTRACTED_DIR/Codex Installer/Codex.app/Contents/Resources/electron.icns"
+    local icns_file
+    icns_file="$(resolve_upstream_resources_dir)/electron.icns"
     local imagemagick_bin=""
 
     if [ -f "$SCRIPT_DIR/codex-icon.png" ]; then
@@ -1555,7 +1904,7 @@ package_release() {
 
     # npm install may omit the downloaded Electron runtime payload even when
     # the electron package itself is present. Ensure the portable bundle
-    # remains self-contained by copying the local runtime payload in.
+    # remains self-contained instead of downloading Electron at launch time.
     if [ -d "$local_electron_dir/dist" ]; then
         mkdir -p "$package_dir/node_modules/electron"
         rm -rf "$package_dir/node_modules/electron/dist"
@@ -1563,6 +1912,39 @@ package_release() {
         if [ -f "$local_electron_dir/path.txt" ]; then
             cp "$local_electron_dir/path.txt" "$package_dir/node_modules/electron/"
         fi
+    fi
+    if [ ! -x "$package_dir/node_modules/electron/dist/electron" ] || [ ! -f "$package_dir/node_modules/electron/path.txt" ]; then
+        log "Installing Electron runtime into portable artifact..."
+        rm -rf "$package_dir/node_modules/electron/dist" "$package_dir/node_modules/electron/path.txt"
+        (
+            cd "$package_dir/node_modules/electron"
+            ELECTRON_INSTALL_PLATFORM="$BUILD_PLATFORM" ELECTRON_INSTALL_ARCH="$BUILD_ARCH" node install.js
+        )
+    fi
+    if [ ! -x "$package_dir/node_modules/electron/dist/electron" ]; then
+        local electron_cache_zip
+        electron_cache_zip="$(
+            find "${electron_config_cache:-$HOME/.cache/electron}" \
+                -name "electron-v$ELECTRON_VERSION-$BUILD_PLATFORM-$BUILD_ARCH.zip" \
+                -type f \
+                -print 2>/dev/null | sort | head -n 1
+        )"
+        if [ -n "$electron_cache_zip" ] && command -v unzip >/dev/null 2>&1; then
+            log "Extracting Electron runtime from cache..."
+            rm -rf "$package_dir/node_modules/electron/dist"
+            mkdir -p "$package_dir/node_modules/electron/dist"
+            unzip -q "$electron_cache_zip" -d "$package_dir/node_modules/electron/dist"
+            printf 'electron' > "$package_dir/node_modules/electron/path.txt"
+            chmod +x "$package_dir/node_modules/electron/dist/electron" || true
+        fi
+    fi
+    if [ ! -x "$package_dir/node_modules/electron/dist/electron" ]; then
+        err "Portable Electron runtime is missing: $package_dir/node_modules/electron/dist/electron"
+        exit 1
+    fi
+    if [ "$(cat "$package_dir/node_modules/electron/path.txt" 2>/dev/null || true)" != "electron" ]; then
+        err "Portable Electron runtime path.txt is invalid"
+        exit 1
     fi
 
     if [ -f "$SCRIPT_DIR/codex-icon.png" ]; then

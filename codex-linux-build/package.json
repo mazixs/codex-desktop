@@ -26,10 +26,11 @@
   },
   "dependencies": {
     "@openai/codex": "0.130.0",
-    "electron": "41.3.0"
+    "electron": "42.0.1"
   },
   "devDependencies": {
     "@electron/asar": "^4.2.0",
-    "@electron/rebuild": "^4.0.4"
+    "@electron/rebuild": "^4.0.4",
+    "node-abi": "4.31.0"
   }
 }

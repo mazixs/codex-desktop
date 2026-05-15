@@ -12,7 +12,7 @@ This document records the exact reverse-engineering steps and workarounds implem
 ## 2. Dealing with Native Modules
 Native Node.js extensions specific to the macOS build fail to load under Linux's dynamic linker (glibc).
 * **`sparkle.node`**: A wrapper for the Sparkle macOS auto-updater. It has no Linux equivalent. **Solution:** Completely deleted. We patch Electron to ignore `require('electron-squirrel-startup')` and Sparkle components.
-* **`better-sqlite3.node` & `node-pty.node`**: Hard-compiled for macOS. **Solution:** Script deletes the `.node` binaries in `node_modules`. Instead of fetching from unverified sources, the pipeline uses `@electron/rebuild` against `electron@41.3.0` headers to securely compile native versions of `better-sqlite3@12.9.0` and `node-pty@1.1.0` locally using `/usr/bin/gcc`.
+* **`better-sqlite3.node` & `node-pty.node`**: Hard-compiled for macOS. **Solution:** Script deletes the `.node` binaries in `node_modules`. Instead of fetching from unverified sources, the pipeline uses `@electron/rebuild` against `electron@42.0.1` headers to securely compile native versions of `better-sqlite3@12.10.0` and `node-pty@1.1.0` locally using `/usr/bin/gcc`.
 
 ## 3. The `codex` LSP CLI Replacement
 * Opening `/Contents/Resources/bin/codex` revealed it was the Rust backend acting as the Language Server (LSP) and WebSocket communication handler.
@@ -35,7 +35,7 @@ Minified JavaScript requires exact structural `sed` replacements:
 * **The Bug:** macOS uses `vibrancy` and `backgroundMaterial` for frosted glass window effects. The default `backgroundColor` is set to `#00000000` (fully transparent) in a minified variable (`Sy`, `So`, `Hf`, etc. depending on upstream build), which is invisible behind vibrancy on macOS but renders as a transparent window on Linux.
 
 * **The Fix (9 patches in main bundle):**
-  1. `Sy=\`#00000000\`` / `So="#00000000"` / `Hf=\`#00000000\`` → opaque dark color — replace transparent window background with an opaque dark fallback. The variable name changes between upstream builds, but it is the default `backgroundColor` for all `BrowserWindow` instances.
+  1. Inject a Linux branch into the background helper so non-transparent Linux windows use the upstream theme colors (`prefersDarkColors ? dark : light`) with `backgroundMaterial:null`; the transparent fallback stays intact for window types that intentionally use it.
   2. `transparent:!0` → `transparent:!1` — disable transparent frameless windows (2 hotkey overlay windows).
   3. `vibrancy:\`menu\`` → `vibrancy:null` — neutralize macOS vibrancy (3 window types: primary, secondary, HUD).
   4. `visualEffectState:\`active\`` → `visualEffectState:null` — neutralize macOS visual effect (HUD window).
@@ -46,7 +46,7 @@ Minified JavaScript requires exact structural `sed` replacements:
   9. Patch the global application-menu refresh path to call `Menu.setApplicationMenu(null)` on Linux, preventing the upstream menu manager from restoring `File/Edit/View/Window/Help` after startup.
 
 * **Key functions patched:**
-  - `ap({platform, appearance, opaqueWindowsEnabled, prefersDarkColors})` — returns `{backgroundColor, backgroundMaterial}` per window type. After patching, always returns `{backgroundColor: '#1e1e1e', backgroundMaterial: null}` on Linux.
+  - `ap({platform, appearance, opaqueWindowsEnabled, prefersDarkColors})` — returns `{backgroundColor, backgroundMaterial}` per window type. After patching, non-transparent Linux windows return `{backgroundColor: prefersDarkColors ? dark : light, backgroundMaterial: null}` so light theme keeps its upstream light background.
   - `op({appearance, opaqueWindowsEnabled, platform})` — returns window chrome options (`vibrancy`, `transparent`, `titleBarStyle`). After patching, all macOS/Windows-specific properties are nullified.
   - The application-menu refresh path now keeps upstream behavior on macOS/Windows but uses `Menu.setApplicationMenu(null)` on Linux so the menu bar stays absent even after startup refreshes.
 
@@ -56,8 +56,8 @@ Minified JavaScript requires exact structural `sed` replacements:
 
 The current maintenance baseline also includes:
 
-* **Fresh upstream DMG refresh:** the repository-local `Codex.dmg` was replaced after confirming a new upstream release (SHA-256 `2afad650981161bb86fd815221cfe97644611912b77c3a9f2a3d743bbae315c9`).
-* **New upstream app version:** the refreshed bundle packaged as `26.506.21252`.
+* **Fresh upstream DMG refresh:** the repository-local `Codex.dmg` was replaced after confirming a new upstream release (SHA-256 `5937a9b4df03f611767dfbe524aa697cb4ce26be59d218e89070a7197e9dae4d`).
+* **New upstream app version:** the refreshed bundle packaged as `26.513.20950`.
 * **CLI bump:** the bundled Linux launcher path now targets `@openai/codex@0.130.0`.
 * **Patch validation:** the refreshed upstream bundle required new patch anchors in both the main bundle and the skills bundle, but the Linux opacity, file-manager, skill override, and menu patches still apply after rebinding.
 * **Operational caveat:** `./build.sh --clean` removes build outputs but not `codex_extracted/`. When validating a new upstream DMG or a CI patch failure, delete `codex_extracted/` or build against a fresh DMG path to avoid false-local green runs on stale extracted sources.
