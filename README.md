@@ -23,8 +23,8 @@ This repository ships a prebuilt Linux distribution of Codex Desktop. It is not 
 
 The current main-branch baseline is:
 
-- upstream Codex Desktop: `26.513.20950`
-- Linux Codex CLI: `@openai/codex 0.130.0`
+- upstream Codex Desktop: `26.513.31313`
+- Linux Codex CLI: `@openai/codex 0.131.0`
 - Electron runtime: `42.0.1`
 
 Each release preserves the exact upstream version in `build-metadata.env`, so installed packages and release artifacts can be traced back to the DMG they were built from.

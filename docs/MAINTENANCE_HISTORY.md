@@ -2,6 +2,23 @@
 
 This document records recent repository maintenance work that changed the Linux adaptation layer.
 
+## 2026-05-20
+
+### Upstream Refresh
+
+- Refreshed against the upstream DMG (Codex Desktop `26.513.31313`).
+- DMG SHA-256: `6d440c7133771935c860a5546bcd603f8b9b65b37e9b82bdb0019d4fd0c85b6a`.
+- Electron runtime remains at `42.0.1`.
+- Bumped `@openai/codex` CLI to `0.131.0`.
+- Verified native modules rebuild successfully and all JS/CSS patches apply correctly.
+
+### Validation
+
+- `rm -rf codex_extracted`
+- `./codex-linux-build/build.sh --clean`
+- `pnpm run verify`
+- `tests/build-smoke.sh`
+
 ## 2026-05-15
 
 ### Upstream Refresh
