@@ -12,6 +12,14 @@ This document records recent repository maintenance work that changed the Linux 
 - Bumped `@openai/codex` CLI to `0.131.0`.
 - Verified native modules rebuild successfully and all JS/CSS patches apply correctly.
 
+### Browser Compatibility & Detection
+
+- Patched the Chrome plugin scripts to support dynamic browser and profile detection on Linux.
+- Added support for `google-chrome-stable` (often found on Arch Linux), Brave Browser (`brave-browser`), and Chromium (`chromium`) commands.
+- Configured dynamic user profile resolution checking `.config/google-chrome`, `.config/BraveSoftware/Brave-Browser`, and `.config/chromium`.
+- Enabled native messaging host registration across Google Chrome, Brave, and Chromium to make the browser extension work seamlessly.
+
+
 ### Validation
 
 - `rm -rf codex_extracted`

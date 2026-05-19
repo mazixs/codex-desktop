@@ -70,3 +70,13 @@ The current maintenance baseline also includes:
   - **Detection:** Uses `B('xdg-open')` — the bundled `which.sync` wrapper — to locate `xdg-open` on the system.
   - **Open handler:** Uses Electron's `shell.openPath()` API. If the path points to a file, it resolves to the parent directory via `path.dirname()` before opening, matching the macOS/Windows "reveal in folder" behavior.
   - The patch is non-required (`replace_literal` without `required=1`), so if upstream changes the `Xa` definition, the build continues with a warning.
+
+## 9. Dynamic Browser Detection & Profile Matching on Linux
+
+* **The Problem:** The upstream Google Chrome plugin expects `google-chrome` or `chrome` to be available in PATH. However, on many Linux distributions (such as Arch Linux), the binary is named `google-chrome-stable`. Additionally, if Google Chrome is not found, the plugin attempts to fall back to downloading Playwright's bundled Chromium, which is undesired.
+* **The Fix:**
+  - **Browser detection (`installed-browsers.js`):** Expanded `KNOWN_BROWSERS` configuration to check `google-chrome-stable` before `google-chrome`. Added support for Brave Browser (`brave-browser`, `brave`) and Chromium (`chromium-browser`, `chromium`) as alternative options.
+  - **Launcher (`open-chrome-window.js`):** Modified the browser launch command to dynamically check for the first available binary (`google-chrome-stable`, `google-chrome`, `brave-browser`, etc.) in the PATH.
+  - **Profile paths (`open-chrome-window.js` & `check-extension-installed.js`):** Patched the user data directory resolver to dynamically check `.config/google-chrome`, `.config/BraveSoftware/Brave-Browser`, and `.config/chromium` based on which one actually exists.
+  - **Native Messaging (`installManifest.mjs`):** Patched the extension native messaging host installer to write the JSON manifest to all three configuration folders, enabling the extension to work seamlessly regardless of whether the user runs Google Chrome, Brave, or Chromium.
+

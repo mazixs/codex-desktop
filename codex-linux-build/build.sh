@@ -633,6 +633,149 @@ with open(path, "w", encoding="utf-8") as handle:
 PY
         fi
 
+        local chrome_installed_browsers="$BUILD_DIR/plugins/openai-bundled/plugins/chrome/scripts/installed-browsers.js"
+        if [ -f "$chrome_installed_browsers" ]; then
+            python3 - "$chrome_installed_browsers" <<'PY'
+import sys
+
+path = sys.argv[1]
+with open(path, "r", encoding="utf-8") as handle:
+    content = handle.read()
+
+target = 'commands: ["google-chrome", "chrome"],'
+replacement = 'commands: ["google-chrome-stable", "google-chrome", "chrome"],'
+if target in content:
+    content = content.replace(target, replacement, 1)
+
+target_list = """const KNOWN_BROWSERS = [
+  {
+    name: "Google Chrome",
+    bundleIds: ["com.google.Chrome"],
+    appNames: ["Google Chrome.app"],
+    commands: ["google-chrome-stable", "google-chrome", "chrome"],
+    windowsExecutable: "chrome.exe",
+  },
+];"""
+
+replacement_list = """const KNOWN_BROWSERS = [
+  {
+    name: "Google Chrome",
+    bundleIds: ["com.google.Chrome"],
+    appNames: ["Google Chrome.app"],
+    commands: ["google-chrome-stable", "google-chrome", "chrome"],
+    windowsExecutable: "chrome.exe",
+  },
+  {
+    name: "Brave Browser",
+    bundleIds: ["com.brave.Browser"],
+    appNames: ["Brave Browser.app"],
+    commands: ["brave-browser", "brave"],
+    windowsExecutable: "brave.exe",
+  },
+  {
+    name: "Chromium",
+    bundleIds: ["org.chromium.Chromium"],
+    appNames: ["Chromium.app"],
+    commands: ["chromium-browser", "chromium"],
+    windowsExecutable: "chromium.exe",
+  }
+];"""
+
+if target_list in content:
+    content = content.replace(target_list, replacement_list, 1)
+
+with open(path, "w", encoding="utf-8") as handle:
+    handle.write(content)
+PY
+        fi
+
+        local chrome_open_window="$BUILD_DIR/plugins/openai-bundled/plugins/chrome/scripts/open-chrome-window.js"
+        if [ -f "$chrome_open_window" ]; then
+            python3 - "$chrome_open_window" <<'PY'
+import sys
+
+path = sys.argv[1]
+with open(path, "r", encoding="utf-8") as handle:
+    content = handle.read()
+
+target1 = 'return path.join(os.homedir(), ".config", "google-chrome");'
+replacement1 = """  const linuxDirs = [
+    path.join(os.homedir(), ".config", "google-chrome"),
+    path.join(os.homedir(), ".config", "BraveSoftware", "Brave-Browser"),
+    path.join(os.homedir(), ".config", "chromium"),
+  ];
+  for (const dir of linuxDirs) {
+    if (fs.existsSync(dir)) return dir;
+  }
+  return linuxDirs[0];"""
+
+if target1 in content:
+    content = content.replace(target1, replacement1, 1)
+
+target2 = 'command: "google-chrome",'
+replacement2 = """command: (() => {
+      const candidates = ["google-chrome-stable", "google-chrome", "brave-browser", "brave", "chromium-browser", "chromium", "chrome"];
+      for (const cmd of candidates) {
+        if (commandPath(cmd)) return cmd;
+      }
+      return "google-chrome";
+    })(),"""
+
+if target2 in content:
+    content = content.replace(target2, replacement2, 1)
+
+with open(path, "w", encoding="utf-8") as handle:
+    handle.write(content)
+PY
+        fi
+
+        local chrome_check_extension="$BUILD_DIR/plugins/openai-bundled/plugins/chrome/scripts/check-extension-installed.js"
+        if [ -f "$chrome_check_extension" ]; then
+            python3 - "$chrome_check_extension" <<'PY'
+import sys
+
+path = sys.argv[1]
+with open(path, "r", encoding="utf-8") as handle:
+    content = handle.read()
+
+target1 = 'return path.join(os.homedir(), ".config", "google-chrome");'
+replacement1 = """  const linuxDirs = [
+    path.join(os.homedir(), ".config", "google-chrome"),
+    path.join(os.homedir(), ".config", "BraveSoftware", "Brave-Browser"),
+    path.join(os.homedir(), ".config", "chromium"),
+  ];
+  for (const dir of linuxDirs) {
+    if (fs.existsSync(dir)) return dir;
+  }
+  return linuxDirs[0];"""
+
+if target1 in content:
+    content = content.replace(target1, replacement1, 1)
+
+with open(path, "w", encoding="utf-8") as handle:
+    handle.write(content)
+PY
+        fi
+
+        local chrome_install_manifest="$BUILD_DIR/plugins/openai-bundled/plugins/chrome/scripts/installManifest.mjs"
+        if [ -f "$chrome_install_manifest" ]; then
+            python3 - "$chrome_install_manifest" <<'PY'
+import sys
+
+path = sys.argv[1]
+with open(path, "r", encoding="utf-8") as handle:
+    content = handle.read()
+
+target = 'linux:[".config/google-chrome/NativeMessagingHosts"]'
+replacement = 'linux:[".config/google-chrome/NativeMessagingHosts",".config/BraveSoftware/Brave-Browser/NativeMessagingHosts",".config/chromium/NativeMessagingHosts"]'
+if target in content:
+    content = content.replace(target, replacement, 1)
+
+with open(path, "w", encoding="utf-8") as handle:
+    handle.write(content)
+PY
+        fi
+
         for browser_plugin_json in "$BUILD_DIR"/plugins/openai-bundled/plugins/{browser,browser-use,chrome,latex,latex-tectonic}/.codex-plugin/plugin.json; do
             [ -f "$browser_plugin_json" ] || continue
             node - "$browser_plugin_json" <<'NODE'
