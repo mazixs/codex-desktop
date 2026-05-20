@@ -65,6 +65,67 @@ find_node_bin() {
     return 1
 }
 
+ensure_electron_binary() {
+    local electron_dir="$SCRIPT_DIR/node_modules/electron"
+    local electron_dist="$electron_dir/dist/electron"
+    local path_txt="$electron_dir/path.txt"
+
+    if [ -d "$electron_dir" ] && { [ ! -x "$electron_dist" ] || [ ! -f "$path_txt" ]; }; then
+        log "Electron binary is missing or incomplete. Triggering robust extraction..."
+        (
+            cd "$SCRIPT_DIR"
+            node -e '
+const fs = require("fs");
+const path = require("path");
+const { spawnSync } = require("child_process");
+
+const electronDir = path.resolve("node_modules/electron");
+const packageJson = require(path.join(electronDir, "package.json"));
+const version = packageJson.version;
+const platform = "linux";
+const arch = "x64";
+
+console.log("Resolving Electron binary v" + version + "...");
+const { downloadArtifact } = require("@electron/get");
+downloadArtifact({
+  version,
+  artifactName: "electron",
+  platform,
+  arch
+})
+  .then((zipPath) => {
+    console.log("Downloaded zip to:", zipPath);
+    const distDir = path.join(electronDir, "dist");
+    fs.mkdirSync(distDir, { recursive: true });
+
+    const unzipRes = spawnSync("unzip", ["-o", "-d", distDir, zipPath]);
+    if (unzipRes.status === 0) {
+      console.log("Successfully extracted using unzip!");
+    } else {
+      console.log("unzip utility failed or not found. Falling back to extract-zip...");
+      const extract = require("extract-zip");
+      return extract(zipPath, { dir: distDir });
+    }
+  })
+  .then(() => {
+    const distPath = path.join(electronDir, "dist");
+    const srcTypeDefPath = path.join(distPath, "electron.d.ts");
+    const targetTypeDefPath = path.join(electronDir, "electron.d.ts");
+    if (fs.existsSync(srcTypeDefPath)) {
+      fs.renameSync(srcTypeDefPath, targetTypeDefPath);
+    }
+    fs.writeFileSync(path.join(electronDir, "path.txt"), "electron");
+    console.log("Electron binary installation completed successfully!");
+  })
+  .catch((err) => {
+    console.error("Error installing Electron binary:", err.stack);
+    process.exit(1);
+  });
+'
+        )
+    fi
+}
+
 free_webview_port() {
     if command -v fuser >/dev/null 2>&1; then
         fuser -k "${WEBVIEW_PORT}/tcp" >/dev/null 2>&1 || true
@@ -141,6 +202,8 @@ if [ ! -f "$DIST_DIR/webview-server.js" ]; then
     err "Missing $DIST_DIR/webview-server.js. Re-run ./build.sh."
     exit 1
 fi
+
+ensure_electron_binary
 
 ELECTRON_BIN_RESOLVED="$(find_electron_bin || true)"
 if [ -z "$ELECTRON_BIN_RESOLVED" ]; then
