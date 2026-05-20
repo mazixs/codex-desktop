@@ -8,8 +8,11 @@ This document records recent repository maintenance work that changed the Linux 
 
 - Refreshed against the upstream DMG (Codex Desktop `26.513.31313`).
 - DMG SHA-256: `6d440c7133771935c860a5546bcd603f8b9b65b37e9b82bdb0019d4fd0c85b6a`.
-- Electron runtime remains at `42.0.1`.
-- Bumped `@openai/codex` CLI to `0.131.0`.
+- Bumped Electron runtime from `42.0.1` to `42.2.0`.
+- Bumped `@openai/codex` CLI from `0.131.0` to `0.132.0`.
+  - CLI 0.131.0 introduced remote plugin catalog sync (`chatgpt.com/backend-api/plugins/featured`
+    and `/ps/plugins/installed`) which was blocked by Cloudflare 403 challenge pages, causing
+    the `@` mention menu to return empty results.
 - Verified native modules rebuild successfully and all JS/CSS patches apply correctly.
 
 ### Browser Compatibility & Detection
