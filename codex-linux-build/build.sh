@@ -1125,7 +1125,7 @@ if chrome_var_match:
 
 name_expr = r'(?:`chrome`|"chrome"|\'chrome\'|[A-Za-z_$][\w$]*)'
 gate_pattern = re.compile(
-    rf'\{{([^{{}}]*?)(installWhenMissing:!0,)?name:({name_expr}),(isAvailable|isEnabled):\(\{{([^}}]*)\}}\)=>([^{{}}]*?externalBrowserUseAllowed[^{{}}]*?)(,migrate:[A-Za-z_$][\w$]*)?\}}'
+    rf'\{{([^{{}}]*?)(installWhenMissing:!0,)?name:({name_expr}),([^{{}}]*?)(isAvailable|isEnabled):\(\{{([^}}]*)\}}\)=>([^{{}}]*?externalBrowserUseAllowed[^{{}}]*?)(,migrate:[A-Za-z_$][\w$]*)?\}}'
 )
 
 def is_chrome_name(expr: str) -> bool:
@@ -1134,13 +1134,13 @@ def is_chrome_name(expr: str) -> bool:
 patched = 0
 def replace_gate(match: re.Match[str]) -> str:
     global patched
-    prefix, existing, name, prop, params, expression, migrate = match.groups()
+    prefix, existing, name, intermediate, prop, params, expression, migrate = match.groups()
     if not is_chrome_name(name):
         return match.group(0)
     if existing is not None or "installWhenMissing:!0" in prefix:
         return match.group(0)
     patched += 1
-    return f"{{{prefix}installWhenMissing:!0,name:{name},{prop}:({{{params}}})=>{expression}{migrate or ''}}}"
+    return f"{{{prefix}installWhenMissing:!0,name:{name},{intermediate}{prop}:({{{params}}})=>{expression}{migrate or ''}}}"
 
 content = gate_pattern.sub(replace_gate, content)
 if patched == 0 and "externalBrowserUseAllowed" in content and "`chrome`" in content and "installWhenMissing:!0,name:" not in content:

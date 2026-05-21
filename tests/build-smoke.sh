@@ -112,7 +112,7 @@ else
     pass "Browser Use plugin resources not present (optional)"
 fi
 
-grep -Eq 'installWhenMissing:!0,name:[A-Za-z_$][A-Za-z0-9_$]*,isAvailable:\(\{[^}]*\}\)=>[^{}]*externalBrowserUseAllowed' "$main_bundle" \
+grep -Eq 'installWhenMissing:!0,name:[A-Za-z_$][A-Za-z0-9_$]*,.*isAvailable:\(\{[^}]*\}\)=>[^{}]*externalBrowserUseAllowed' "$main_bundle" \
     || err "Chrome plugin auto-install gate not found"
 pass "Chrome plugin auto-install gate present"
 
