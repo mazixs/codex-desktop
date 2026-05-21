@@ -57,8 +57,8 @@ Minified JavaScript requires exact structural `sed` replacements:
 The current maintenance baseline also includes:
 
 * **Fresh upstream DMG refresh:** the repository-local `Codex.dmg` was replaced after confirming a new upstream release (SHA-256 `6d440c7133771935c860a5546bcd603f8b9b65b37e9b82bdb0019d4fd0c85b6a`).
-* **New upstream app version:** the refreshed bundle packaged as `26.513.31313`.
-* **CLI bump:** the bundled Linux launcher path now targets `@openai/codex@0.132.0`.
+* **New upstream app version:** the refreshed bundle packaged as `26.519.22136`.
+* **CLI bump:** the bundled Linux launcher path now targets `@openai/codex@0.133.0`.
 * **Patch validation:** the refreshed upstream bundle required new patch anchors in both the main bundle and the skills bundle, but the Linux opacity, file-manager, skill override, and menu patches still apply after rebinding.
 * **Operational caveat:** `./build.sh --clean` removes build outputs but not `codex_extracted/`. When validating a new upstream DMG or a CI patch failure, delete `codex_extracted/` or build against a fresh DMG path to avoid false-local green runs on stale extracted sources.
 

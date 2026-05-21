@@ -2,6 +2,16 @@
 
 This document records recent repository maintenance work that changed the Linux adaptation layer.
 
+## 2026-05-22
+
+### Upstream Refresh
+
+- Refreshed against the upstream DMG (Codex Desktop `26.519.22136`).
+- DMG SHA-256: `7f8ff3032302796f610de232e87ada73955d189caad5ad140254865cbad7b729`.
+- Kept Electron runtime at `42.2.0`.
+- Bumped `@openai/codex` CLI from `0.132.0` to `0.133.0`.
+- Patched `build.sh` and `tests/build-smoke.sh` to support the new `syncInstallStateWithChromeExtension` field in Chrome extension metadata objects, ensuring the Chrome auto-install gate is successfully patched and validated.
+
 ## 2026-05-20
 
 ### Upstream Refresh
