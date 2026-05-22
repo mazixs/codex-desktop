@@ -92,6 +92,9 @@ if [ -d "$DIST_DIR/plugins/openai-bundled" ]; then
         grep -Fq '/aura/site_status' "$browser_client" || err "Browser Use site_status endpoint missing"
         ! grep -Fq 'url_request_source' "$browser_client" || err "Browser Use site_status request metadata params still present"
         pass "Browser Use site_status allowlist patch present"
+        grep -Fq 'import.meta.__codexNativePipe' "$browser_client" \
+            || err "Browser Use native pipe trust bridge patch missing"
+        pass "Browser Use native pipe trust bridge patch present"
 
         browser_client_hash="$(sha256sum "$browser_client" | awk '{print $1}')"
         grep -Fq "\`$browser_client_hash\`" "$main_bundle" || err "Browser Use trusted client hash not updated in main bundle"

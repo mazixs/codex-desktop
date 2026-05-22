@@ -586,6 +586,15 @@ content = re.sub(
     content
 )
 
+# 4. Newer node_repl injects the privileged native pipe bridge into trusted
+# imported modules through import.meta instead of globalThis.nodeRepl.
+content = re.sub(
+    r'let ([A-Za-z_$][\w$]*)=globalThis\.nodeRepl\?\.nativePipe;return \1==null\|\|typeof \1\.createConnection!="function"\?null:\1',
+    r'let \1=globalThis.nodeRepl?.nativePipe??import.meta.__codexNativePipe;return \1==null||typeof \1.createConnection!="function"?null:\1',
+    content,
+    count=1
+)
+
 with open(path, "w", encoding="utf-8") as handle:
     handle.write(content)
 PY
