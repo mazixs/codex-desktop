@@ -654,8 +654,8 @@ if profile_match and "userDataDir:" not in profile_match.group(0):
     read_file_func = profile_match.group("readfile")
     replacement = (
         f'{find_func}=async({ext_arg},{instance_arg})=>{{let r=(await {list_func}({ext_arg})).filter(n=>n.instanceId==={instance_arg});return r.length===1?r[0]:null}},'
-        f'{list_func}=async {extension_arg}=>{{let e=[];for(let r of codexLinuxChromeUserDataDirectories())try{{let n=await {read_profiles_func}(r);'
-        f'e.push(...await Promise.all(n.map(async o=>({{...o,userDataDir:r,instanceId:await {metadata_func}(o.id,{extension_arg},r).catch(i=>(te(i),null))}}))))}}catch(n){{te(n)}}return e}},'
+        f'{list_func}=async {extension_arg}=>{{let codexProfiles=[];for(let r of codexLinuxChromeUserDataDirectories())try{{let n=await {read_profiles_func}(r);'
+        f'codexProfiles.push(...await Promise.all(n.map(async o=>({{...o,userDataDir:r,instanceId:await {metadata_func}(o.id,{extension_arg},r).catch(i=>(te(i),null))}}))))}}catch(n){{te(n)}}return codexProfiles}},'
         f'{read_profiles_func}=async r=>{{let n={path_func}(r,"Local State"),o=JSON.parse(await {read_file_func}(n,"utf8"));'
         f'return o.profile.profiles_order.map((i,s)=>{{let a=o.profile.info_cache[i];return a?{{id:i,name:a.name,isLastUsed:o.profile.last_used===i,orderingIndex:s,avatarUrl:a.avatar_icon}}:null}}).filter(i=>!!i)}}'
     )
