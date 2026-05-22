@@ -25,7 +25,7 @@
     ]
   },
   "dependencies": {
-    "@openai/codex": "0.133.0",
+    "@openai/codex": "0.134.0-alpha.1",
     "electron": "42.2.0"
   },
   "devDependencies": {

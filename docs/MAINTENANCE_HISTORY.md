@@ -6,6 +6,16 @@ This document records recent repository maintenance work that changed the Linux 
 
 ### Upstream Refresh
 
+- Refreshed against the upstream DMG (Codex Desktop `26.519.31651`).
+- DMG SHA-256: `d30bb10ffefb855dcd9e22118520cb6fb6619dcfd7ec681847aa159b4f2a0f3d`.
+- Kept Electron runtime at `42.2.0`.
+- Bumped `@openai/codex` CLI from `0.133.0` to `0.134.0-alpha.1`.
+- Verified native modules rebuild successfully and all JS/CSS patches apply correctly.
+
+## 2026-05-22
+
+### Upstream Refresh
+
 - Refreshed against the upstream DMG (Codex Desktop `26.519.22136`).
 - DMG SHA-256: `7f8ff3032302796f610de232e87ada73955d189caad5ad140254865cbad7b729`.
 - Kept Electron runtime at `42.2.0`.
