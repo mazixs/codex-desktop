@@ -554,6 +554,41 @@ if count != 1:
 with open(path, "w", encoding="utf-8") as handle:
     handle.write(content)
 PY
+
+            # Map real process.env into processShim.env and make nodeRepl.env access safe
+            python3 - "$browser_client" <<'PY'
+import re
+import sys
+
+path = sys.argv[1]
+with open(path, "r", encoding="utf-8") as handle:
+    content = handle.read()
+
+# 1. Map real process.env into processShim.env
+content = re.sub(
+    r'env:\s*\{\},',
+    'env: typeof process !== "undefined" && process.env ? { ...process.env } : {},',
+    content,
+    count=1
+)
+
+# 2. Patch lu function to safely read from nodeRepl.env or fall back to process.env
+content = re.sub(
+    r'globalThis\.nodeRepl\?\.env\[([a-zA-Z_\$][\w\$]*)\]',
+    r'(globalThis.nodeRepl?.env || globalThis.process?.env)?.[\1]',
+    content
+)
+
+# 3. Patch PT function to safely call setResponseMeta
+content = re.sub(
+    r'e\.nodeRepl\?\.setResponseMeta\(',
+    r'e.nodeRepl?.setResponseMeta?.(',
+    content
+)
+
+with open(path, "w", encoding="utf-8") as handle:
+    handle.write(content)
+PY
         done
 
         local chrome_browser_client="$BUILD_DIR/plugins/openai-bundled/plugins/chrome/scripts/browser-client.mjs"
