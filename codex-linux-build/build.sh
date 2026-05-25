@@ -1277,7 +1277,33 @@ content = content[:func_start] + func_body + content[func_end:]
 open(path, "w").write(content)
 PY
 
-    replace_literal "$main_bundle" 'transparent:!0' 'transparent:!1'
+    # Specific Linux transparency and window type fixes
+    python3 - "$main_bundle" <<'PY'
+import re, sys
+
+path = sys.argv[1]
+content = open(path, "r", encoding="utf-8").read()
+
+# 1. Patch UY to set type: 'utility' on Linux to prevent taskbar presence and window manager borders
+uy_pattern = r'\.\.\.([A-Za-z_$][\w$]*)===`darwin`\?\{type:`panel`\}:\{\}'
+content, count_uy = re.subn(uy_pattern, r'... \1===`darwin`?{type:`panel`}:\1===`linux`?{type:`utility`}:{}', content)
+if count_uy == 0:
+    print("WARN: Could not patch UY window type for Linux support", file=sys.stderr)
+
+# 2. Make hotkeyWindowHome opaque on Linux
+home_pattern = r'case`hotkeyWindowHome`:return\s+([A-Za-z_$][\w$]*)\(\{platform:([A-Za-z_$][\w$]*),resizable:!1,thickFrame:!1\}\)'
+content, count_home = re.subn(home_pattern, r'case`hotkeyWindowHome`:return \1({platform:\2,resizable:!1,thickFrame:!1,transparent:\2!==`linux`})', content)
+if count_home == 0:
+    print("WARN: Could not patch hotkeyWindowHome opacity logic", file=sys.stderr)
+
+# 3. Make hotkeyWindowThread opaque on Linux
+thread_pattern = r'case`hotkeyWindowThread`:return\s+([A-Za-z_$][\w$]*)\(\{platform:([A-Za-z_$][\w$]*),resizable:!0\}\)'
+content, count_thread = re.subn(thread_pattern, r'case`hotkeyWindowThread`:return \1({platform:\2,resizable:!0,transparent:\2!==`linux`})', content)
+if count_thread == 0:
+    print("WARN: Could not patch hotkeyWindowThread opacity logic", file=sys.stderr)
+
+open(path, "w", encoding="utf-8").write(content)
+PY
 
     # Vibrancy / visualEffectState / backgroundMaterial — try both quote styles
     # shellcheck disable=SC2016
