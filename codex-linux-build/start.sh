@@ -312,7 +312,16 @@ export CHROME_DESKTOP="${APP_DESKTOP_ID}.desktop"
 register_url_scheme_handlers
 
 if [[ "$ELECTRON_BIN_RESOLVED" == node:* ]]; then
-    exec node "${ELECTRON_BIN_RESOLVED#node:}" \
+    node "${ELECTRON_BIN_RESOLVED#node:}" \
+        "$DIST_DIR" \
+        --no-sandbox \
+        --disable-gpu-compositing \
+        --disable-background-timer-throttling \
+        --class="$APP_DESKTOP_ID" \
+        "${OZONE_FLAGS[@]}" \
+        "$@"
+else
+    "$ELECTRON_BIN_RESOLVED" \
         "$DIST_DIR" \
         --no-sandbox \
         --disable-gpu-compositing \
@@ -322,11 +331,3 @@ if [[ "$ELECTRON_BIN_RESOLVED" == node:* ]]; then
         "$@"
 fi
 
-exec "$ELECTRON_BIN_RESOLVED" \
-    "$DIST_DIR" \
-    --no-sandbox \
-    --disable-gpu-compositing \
-    --disable-background-timer-throttling \
-    --class="$APP_DESKTOP_ID" \
-    "${OZONE_FLAGS[@]}" \
-    "$@"
