@@ -14,6 +14,7 @@ concurrency:
 
 env:
   ACTIONLINT_VERSION: 1.7.12
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   build-portable:
