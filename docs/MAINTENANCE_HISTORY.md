@@ -2,6 +2,23 @@
 
 This document records recent repository maintenance work that changed the Linux adaptation layer.
 
+## 2026-05-29
+
+### Upstream Refresh
+
+- Refreshed against the upstream DMG (Codex Desktop `26.519.81530`).
+- DMG SHA-256: `c9a9ee11986a0f880158b81e459b64b684642396f49eaf7fa0e018f4a8c37b42`.
+- Kept Electron runtime at `42.2.0`.
+- Bumped `@openai/codex` CLI to `0.135.0`.
+- Integrated patch alternatives (`replace_first_available`) for 15 editors to handle renamed minified helper functions (e.g. `yT`, `SE`, `kE`, `AE`, `bT`) in the new bundle, maintaining comprehensive Linux editor integration.
+- Fixed process lifecycle management in `start.sh` by removing `exec` so that `trap cleanup` correctly terminates background subprocesses on exit.
+
+### Validation
+
+- `rm -rf codex_extracted`
+- `./codex-linux-build/build.sh --clean`
+- `pnpm run verify`
+
 ## 2026-05-22
 
 ### Upstream Refresh
