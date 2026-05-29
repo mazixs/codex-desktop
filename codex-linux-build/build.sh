@@ -865,13 +865,38 @@ NODE
         fi
     fi
     if [ -x "$dist_node_repl" ]; then
-        local node_repl_patch_status
-        if node_repl_patch_status="$(patch_node_repl_glibc_pidfd_symbols "$dist_node_repl" 2>&1)"; then
-            if [ "$node_repl_patch_status" = "patched" ]; then
-                log "Patched node_repl pidfd symbols for glibc 2.34+"
+        local ldd_output
+        ldd_output="$(ldd --version 2>&1 || true)"
+        if echo "$ldd_output" | grep -qi "musl"; then
+            warn "musl libc detected: node_repl may not function without static linking"
+        fi
+
+        local glibc_version=""
+        if echo "$ldd_output" | grep -q "GNU libc"; then
+            glibc_version="$(echo "$ldd_output" | grep "GNU libc" | head -n 1 | grep -oE '[0-9]+\.[0-9]+' | head -n 1 || true)"
+        fi
+
+        local should_patch=1
+        if [ "$PACKAGE_RELEASE" -eq 0 ] && [ -n "$glibc_version" ]; then
+            local major
+            local minor
+            major="$(echo "$glibc_version" | cut -d. -f1)"
+            minor="$(echo "$glibc_version" | cut -d. -f2)"
+            if [ "$major" -gt 2 ] || { [ "$major" -eq 2 ] && [ "$minor" -ge 39 ]; }; then
+                log "System glibc ($glibc_version) supports pidfd_spawn natively. Skipping ELF patch."
+                should_patch=0
             fi
-        else
-            warn "Could not patch node_repl glibc compatibility: $node_repl_patch_status"
+        fi
+
+        if [ "$should_patch" -eq 1 ]; then
+            local node_repl_patch_status
+            if node_repl_patch_status="$(patch_node_repl_glibc_pidfd_symbols "$dist_node_repl" 2>&1)"; then
+                if [ "$node_repl_patch_status" = "patched" ]; then
+                    log "Patched node_repl pidfd symbols for glibc 2.34+"
+                fi
+            else
+                warn "Could not patch node_repl glibc compatibility: $node_repl_patch_status"
+            fi
         fi
     fi
 
@@ -2005,6 +2030,100 @@ PY
             'he=pe==null?null:A.find(e=>Ld(e.anchor,pe))??null,ge=fe?de:!fe&&he!=null?A.filter(e=>e.id!==he.id):A' \
             'be=(!ge&&ye!=null?A.filter(e=>e.id!==ye.id):A).flatMap' \
             'be=(ge?he:!ge&&ye!=null?A.filter(e=>e.id!==ye.id):A).flatMap'
+    fi
+
+    # --- Drag-and-Drop (GAP-3) preload.js patch ---
+    local preload_js="$BUILD_DIR/.vite/build/preload.js"
+    if [ -f "$preload_js" ]; then
+        log "Patching preload.js for Linux file:// drag-and-drop support..."
+        python3 - "$preload_js" <<'PY'
+import sys
+path = sys.argv[1]
+content = open(path, "r", encoding="utf-8").read()
+needle = "getPathForFile:t=>e.webUtils.getPathForFile(t)||null"
+replacement = "getPathForFile:t=>{let p=e.webUtils.getPathForFile(t)||null;if(p&&p.startsWith(`file://`)){try{p=require(`node:url`).fileURLToPath(p)}catch{}}return p}"
+if needle in content:
+    content = content.replace(needle, replacement)
+else:
+    print("WARN: Could not find getPathForFile needle in preload.js", file=sys.stderr)
+open(path, "w", encoding="utf-8").write(content)
+PY
+        node --check "$preload_js"
+    fi
+
+    # --- app.dock / setBadgeCount (GAP-7) patch ---
+    log "Patching setBadgeCount guard in main bundle..."
+    python3 - "$main_bundle" <<'PY'
+import sys
+path = sys.argv[1]
+content = open(path, "r", encoding="utf-8").read()
+needle = "n.app.setBadgeCount(i.count)"
+replacement = "n.app.setBadgeCount?.(i.count)"
+if needle in content:
+    content = content.replace(needle, replacement)
+else:
+    print("WARN: Could not find setBadgeCount needle in main bundle", file=sys.stderr)
+open(path, "w", encoding="utf-8").write(content)
+PY
+
+    # --- Sparkle Autoupdater no-op (GAP-9) patch ---
+    local drop_handler_bundle=""
+    drop_handler_bundle="$(find "$BUILD_DIR/.vite/build" -maxdepth 1 -name 'workspace-root-drop-handler-*.js' ! -name '*.map' -type f | head -n 1)"
+    if [ -z "$drop_handler_bundle" ] || [ ! -f "$drop_handler_bundle" ]; then
+        drop_handler_bundle="$(find "$BUILD_DIR/.vite/build" -maxdepth 1 -name '*.js' ! -name '*.map' -type f -exec grep -l 'sparkle.node' {} + | head -n 1)"
+    fi
+    if [ -n "$drop_handler_bundle" ] && [ -f "$drop_handler_bundle" ]; then
+        log "Patching Sparkle auto-updater in $(basename "$drop_handler_bundle")..."
+        python3 - "$drop_handler_bundle" <<'PY'
+import sys
+path = sys.argv[1]
+content = open(path, "r", encoding="utf-8").read()
+
+# 1. Disable loading of sparkle.node and logging failure on Linux
+needle_load = "try{t=gI((0,i.join)(process.resourcesPath,`native`,`sparkle.node`))}catch(e){n=e}if(!t){hI().error(`Failed to load native Sparkle addon`,{safe:{},sensitive:{error:n}}),this.lastUnavailableReason=`failed to load native sparkle addon`;return}"
+replacement_load = "try{t=process.platform===`linux`?null:gI((0,i.join)(process.resourcesPath,`native`,`sparkle.node`))}catch(e){n=e}if(!t){if(process.platform!==`linux` && hI())hI().error(`Failed to load native Sparkle addon`,{safe:{},sensitive:{error:n}});this.lastUnavailableReason=process.platform===`linux`?`unsupported platform`:`failed to load native sparkle addon`;return}"
+
+# 2. Disable updater check/install methods
+needle_check = "async checkForUpdates(){if(!this.updater){"
+replacement_check = "async checkForUpdates(){if(process.platform===`linux`)return;if(!this.updater){"
+
+needle_install = "async installUpdatesIfAvailable(){if(!this.updater){"
+replacement_install = "async installUpdatesIfAvailable(){if(process.platform===`linux`)return;if(!this.updater){"
+
+needle_bg = "async checkForUpdatesInBackground(){"
+replacement_bg = "async checkForUpdatesInBackground(){if(process.platform===`linux`)return;"
+
+patched = False
+if needle_load in content:
+    content = content.replace(needle_load, replacement_load)
+    patched = True
+else:
+    print("WARN: Could not find sparkle.node load needle in drop handler", file=sys.stderr)
+
+if needle_check in content:
+    content = content.replace(needle_check, replacement_check)
+    patched = True
+else:
+    print("WARN: Could not find checkForUpdates needle in drop handler", file=sys.stderr)
+
+if needle_install in content:
+    content = content.replace(needle_install, replacement_install)
+    patched = True
+else:
+    print("WARN: Could not find installUpdatesIfAvailable needle in drop handler", file=sys.stderr)
+
+if needle_bg in content:
+    content = content.replace(needle_bg, replacement_bg)
+    patched = True
+else:
+    print("WARN: Could not find checkForUpdatesInBackground needle in drop handler", file=sys.stderr)
+
+if patched:
+    open(path, "w", encoding="utf-8").write(content)
+PY
+        node --check "$drop_handler_bundle"
+    else
+        warn "Sparkle drop handler bundle not found"
     fi
 
     # Verify patched bundles parse correctly

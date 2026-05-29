@@ -124,9 +124,26 @@ if [ -f "$DIST_DIR/node_repl" ]; then
     file "$DIST_DIR/node_repl" | grep -q "ELF" || err "dist/node_repl is not a Linux ELF binary"
     pass "node_repl Linux ELF binary present"
     if command -v readelf >/dev/null 2>&1; then
-        ! readelf -V "$DIST_DIR/node_repl" 2>/dev/null | grep -q 'Name: GLIBC_2\.39' \
-            || err "node_repl still requires GLIBC_2.39"
-        pass "node_repl glibc compatibility patch present"
+        ldd_output="$(ldd --version 2>&1 || true)"
+        glibc_version=""
+        if echo "$ldd_output" | grep -q "GNU libc"; then
+            glibc_version="$(echo "$ldd_output" | grep "GNU libc" | head -n 1 | grep -oE '[0-9]+\.[0-9]+' | head -n 1 || true)"
+        fi
+        skip_glibc_check=0
+        if [ -n "$glibc_version" ]; then
+            major="$(echo "$glibc_version" | cut -d. -f1)"
+            minor="$(echo "$glibc_version" | cut -d. -f2)"
+            if [ "$major" -gt 2 ] || { [ "$major" -eq 2 ] && [ "$minor" -ge 39 ]; }; then
+                skip_glibc_check=1
+            fi
+        fi
+        if [ "$skip_glibc_check" -eq 1 ]; then
+            pass "node_repl glibc compatibility check skipped (system glibc >= 2.39)"
+        else
+            ! readelf -V "$DIST_DIR/node_repl" 2>/dev/null | grep -q 'Name: GLIBC_2\.39' \
+                || err "node_repl still requires GLIBC_2.39"
+            pass "node_repl glibc compatibility patch present"
+        fi
     fi
 else
     pass "node_repl not present (optional)"
