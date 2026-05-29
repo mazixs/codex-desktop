@@ -118,7 +118,7 @@ Group: Applications/Productivity
 Requires: alsa-lib, atk, cairo, dbus-libs, gdk-pixbuf2, glib2, gtk3, libX11, libXcomposite, libXcursor, libXdamage, libXext, libXfixes, libXi, libXrandr, libXrender, libXtst, libxcb, nss, pango, xdg-utils, libdrm, mesa-libgbm, libxkbcommon
 Provides: codex-desktop
 Conflicts: codex-desktop
-Replaces: codex-desktop
+Obsoletes: codex-desktop
 
 %define debug_package %{nil}
 %define __strip /bin/true
