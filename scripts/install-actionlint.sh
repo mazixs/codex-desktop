@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="${ACTIONLINT_VERSION:-1.7.8}"
+VERSION="${ACTIONLINT_VERSION:-1.7.12}"
 INSTALL_DIR="${ACTIONLINT_INSTALL_DIR:-/tmp/actionlint/bin}"
 ARCHIVE_BASENAME="actionlint_${VERSION#v}_linux_amd64.tar.gz"
 ARCHIVE_URL="https://github.com/rhysd/actionlint/releases/download/v${VERSION#v}/${ARCHIVE_BASENAME}"
