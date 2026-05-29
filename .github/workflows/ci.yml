@@ -32,6 +32,8 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 24
+          cache: 'pnpm'
+          cache-dependency-path: codex-linux-build/pnpm-lock.yaml
 
       - name: Enable Corepack pnpm
         run: ./scripts/enable-pnpm.sh
@@ -87,6 +89,8 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 24
+          cache: 'pnpm'
+          cache-dependency-path: codex-linux-build/pnpm-lock.yaml
 
       - name: Enable Corepack pnpm
         run: ./scripts/enable-pnpm.sh
@@ -99,6 +103,21 @@ jobs:
       - name: Install JavaScript dependencies
         working-directory: codex-linux-build
         run: pnpm install --frozen-lockfile
+
+      - name: Fetch Codex.dmg headers to generate cache key
+        id: dmg-headers
+        run: |
+          dmg_headers=$(curl -sI https://persistent.oaistatic.com/codex-app-prod/Codex.dmg | grep -iE 'content-length|last-modified|etag' | tr -d '\r' | sort)
+          dmg_key=$(echo "$dmg_headers" | sha256sum | awk '{print $1}')
+          echo "dmg_key=$dmg_key" >> $GITHUB_OUTPUT
+
+      - name: Cache Codex.dmg
+        uses: actions/cache@v4
+        with:
+          path: Codex.dmg
+          key: ${{ runner.os }}-codex-dmg-${{ steps.dmg-headers.outputs.dmg-key }}
+          restore-keys: |
+            ${{ runner.os }}-codex-dmg-
 
       - name: Build portable artifact
         working-directory: codex-linux-build
@@ -230,3 +249,51 @@ jobs:
           path: |
             /tmp/codex-deb-output/*.deb
             /tmp/codex-deb-output/*.deb.sha256
+
+  rpm-package-smoke:
+    if: github.event_name != 'pull_request'
+    needs: smoke-build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Download smoke-build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: smoke-build-${{ github.sha }}
+          path: /tmp/codex-portable
+
+      - name: Build and verify RPM package in Fedora container
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/codex-rpm-output
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE":/workspace \
+            -v /tmp/codex-portable:/portable \
+            -v /tmp/codex-rpm-output:/output \
+            fedora:latest \
+            bash -lc '
+              set -euo pipefail
+              source /workspace/scripts/ci-lib.sh
+              dnf install -y rpm-build desktop-file-utils shared-mime-info alsa-lib atk cairo dbus-libs gdk-pixbuf2 glib2 gtk3 libX11 libXcomposite libXcursor libXdamage libXext libXfixes libXi libXrandr libXrender libXtst libxcb nss pango xdg-utils libdrm mesa-libgbm libxkbcommon xorg-x11-server-Xvfb
+              useradd -m builder
+              chown -R builder:builder /workspace /portable /output
+              archive="$(find_single_matching_file /portable "$(portable_release_glob)" "portable archive")"
+              runuser -u builder -- bash -lc "cd /workspace && ./scripts/build-rpm-package.sh --source \"$archive\" --metadata /portable/build-metadata.env --output-dir /output"
+              package_file="$(find_single_matching_file /output "$(rpm_release_glob)" "RPM package")"
+              cd /workspace
+              ./scripts/verify-rpm-package.sh --package "$package_file"
+            '
+
+      - name: Upload RPM smoke artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: rpm-smoke-build-${{ github.sha }}
+          retention-days: 3
+          path: |
+            /tmp/codex-rpm-output/*.rpm
+            /tmp/codex-rpm-output/*.rpm.sha256
+

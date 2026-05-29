@@ -115,6 +115,7 @@ main() {
     local portable_asset_name=""
     local arch_asset_name=""
     local deb_asset_name=""
+    local rpm_asset_name=""
 
     parse_args "$@"
 
@@ -139,9 +140,11 @@ main() {
         if [ -n "$release_version" ]; then
             arch_asset_name="$(arch_release_filename "$release_version")"
             deb_asset_name="$(deb_release_filename "$release_version")"
+            rpm_asset_name="$(rpm_release_filename "$release_version")"
         elif [ -n "$upstream_version" ]; then
             arch_asset_name="$(arch_release_filename "$upstream_version")"
             deb_asset_name="$(deb_release_filename "$upstream_version")"
+            rpm_asset_name="$(rpm_release_filename "$upstream_version")"
         fi
     fi
 
@@ -186,6 +189,10 @@ main() {
         deb_asset_name="$(deb_release_filename "$release_version")"
     fi
 
+    if [ -z "$rpm_asset_name" ] && [ -n "$release_version" ]; then
+        rpm_asset_name="$(rpm_release_filename "$release_version")"
+    fi
+
     notes_file="$(mktemp)"
     {
         printf '# %s\n\n' "$REF"
@@ -201,6 +208,11 @@ main() {
             printf -- "- Debian/Ubuntu installer: \`%s\`\n" "$deb_asset_name"
         else
             printf -- "- Debian/Ubuntu installer: \`codex-desktop-native-<upstream-version>-debian-amd64.deb\`\n"
+        fi
+        if [ -n "$rpm_asset_name" ]; then
+            printf -- "- RedHat/Fedora RPM installer: \`%s\`\n" "$rpm_asset_name"
+        else
+            printf -- "- RedHat/Fedora RPM installer: \`codex-desktop-native-<upstream-version>-rpm-x86_64.rpm\`\n"
         fi
         if [ -n "$portable_asset_name" ]; then
             printf -- "- Portable Linux archive: \`%s\`\n" "$portable_asset_name"

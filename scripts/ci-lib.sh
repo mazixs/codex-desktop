@@ -4,6 +4,7 @@ PACKAGE_PRODUCT_ID="${PACKAGE_PRODUCT_ID:-codex-desktop-native}"
 PORTABLE_PLATFORM_ID="${PORTABLE_PLATFORM_ID:-linux-portable-x64}"
 ARCH_PLATFORM_ID="${ARCH_PLATFORM_ID:-archlinux-x86_64}"
 DEB_PLATFORM_ID="${DEB_PLATFORM_ID:-debian-amd64}"
+RPM_PLATFORM_ID="${RPM_PLATFORM_ID:-rpm-x86_64}"
 PORTABLE_MIN_SIZE_BYTES="${PORTABLE_MIN_SIZE_BYTES:-52428800}"
 
 ci_log() {
@@ -57,6 +58,15 @@ deb_release_filename() {
 
 deb_release_glob() {
     printf '%s-*-%s.deb\n' "$PACKAGE_PRODUCT_ID" "$DEB_PLATFORM_ID"
+}
+
+rpm_release_filename() {
+    local version="$1"
+    printf '%s-%s-%s.rpm\n' "$PACKAGE_PRODUCT_ID" "$version" "$RPM_PLATFORM_ID"
+}
+
+rpm_release_glob() {
+    printf '%s-*-%s.rpm\n' "$PACKAGE_PRODUCT_ID" "$RPM_PLATFORM_ID"
 }
 
 require_file() {
