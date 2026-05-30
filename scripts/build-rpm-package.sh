@@ -120,6 +120,7 @@ Requires: alsa-lib, atk, cairo, dbus-libs, gdk-pixbuf2, glib2, gtk3, libX11, lib
 Provides: codex-desktop
 Conflicts: codex-desktop
 Obsoletes: codex-desktop
+AutoReqProv: no
 Source0: ${source_archive_name}
 
 %define debug_package %{nil}
