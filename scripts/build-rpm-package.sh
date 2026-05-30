@@ -228,8 +228,9 @@ main() {
 
     write_spec_file "$WORK_DIR/codex-desktop.spec" "$package_version"
 
-    # Run rpmbuild specifying the workspace topdir and rpmdir
+    # Run rpmbuild specifying the workspace topdir, buildroot, and rpmdir
     rpmbuild -bb \
+        --buildroot "$buildroot" \
         --define "_topdir $WORK_DIR" \
         --define "_rpmdir $WORK_DIR/RPMS" \
         "$WORK_DIR/codex-desktop.spec"
