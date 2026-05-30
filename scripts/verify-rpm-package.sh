@@ -74,12 +74,24 @@ assert_desktop_entry_contract() {
 
 install_package() {
     if [ "${EUID}" -eq 0 ]; then
-        rpm -ivh "$PACKAGE_FILE"
+        if command -v dnf >/dev/null 2>&1; then
+            dnf install -y "$PACKAGE_FILE"
+        elif command -v yum >/dev/null 2>&1; then
+            yum install -y "$PACKAGE_FILE"
+        else
+            rpm -ivh "$PACKAGE_FILE"
+        fi
         return
     fi
 
     require_command sudo
-    sudo rpm -ivh "$PACKAGE_FILE"
+    if command -v dnf >/dev/null 2>&1; then
+        sudo dnf install -y "$PACKAGE_FILE"
+    elif command -v yum >/dev/null 2>&1; then
+        sudo yum install -y "$PACKAGE_FILE"
+    else
+        sudo rpm -ivh "$PACKAGE_FILE"
+    fi
 }
 
 run_smoke_test() {

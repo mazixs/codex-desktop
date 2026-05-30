@@ -41,7 +41,7 @@ jobs:
           echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_ENV"
 
       - name: Setup pnpm cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ${{ env.STORE_PATH }}
           key: ${{ runner.os }}-pnpm-store-${{ hashFiles('codex-linux-build/pnpm-lock.yaml') }}
@@ -84,7 +84,7 @@ jobs:
           echo "dmg_key=$dmg_key" >> "$GITHUB_OUTPUT"
 
       - name: Cache Codex.dmg
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: Codex.dmg
           key: ${{ runner.os }}-codex-dmg-${{ steps.dmg-headers.outputs.dmg-key }}
@@ -107,7 +107,7 @@ jobs:
         run: ./scripts/verify-portable-artifact.sh --artifacts-dir codex-linux-build/artifacts --release-notes codex-linux-build/artifacts/release-notes.md
 
       - name: Upload portable release bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: portable-release-${{ github.ref_name }}
           retention-days: 1
@@ -127,7 +127,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Download portable release bundle
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: portable-release-${{ github.ref_name }}
           path: /tmp/codex-portable
@@ -155,7 +155,7 @@ jobs:
             '
 
       - name: Upload Arch package bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: arch-release-${{ github.ref_name }}
           retention-days: 1
@@ -173,7 +173,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Download portable release bundle
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: portable-release-${{ github.ref_name }}
           path: /tmp/codex-portable
@@ -221,7 +221,7 @@ jobs:
           ./scripts/verify-deb-package.sh --package "$package_file"
 
       - name: Upload Debian package bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: deb-release-${{ github.ref_name }}
           retention-days: 1
@@ -239,7 +239,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Download portable release bundle
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: portable-release-${{ github.ref_name }}
           path: /tmp/codex-portable
@@ -267,7 +267,7 @@ jobs:
             '
 
       - name: Upload RPM package bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: rpm-release-${{ github.ref_name }}
           retention-days: 1
@@ -289,25 +289,25 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Download portable release bundle
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: portable-release-${{ github.ref_name }}
           path: /tmp/release-portable
 
       - name: Download Arch package bundle
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: arch-release-${{ github.ref_name }}
           path: /tmp/release-arch
 
       - name: Download Debian package bundle
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: deb-release-${{ github.ref_name }}
           path: /tmp/release-deb
 
       - name: Download RPM package bundle
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: rpm-release-${{ github.ref_name }}
           path: /tmp/release-rpm
