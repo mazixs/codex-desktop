@@ -61,6 +61,7 @@ The Linux patch layer focuses on making the app feel native and predictable afte
 - **Codex backend on Linux**: the packaged launcher wires the Electron frontend to the Linux `@openai/codex` CLI instead of the macOS-only upstream backend binary.
 - **Packaged skills layout**: bundled skill overrides are copied into the Linux artifact and resolved from packaged paths, so the app can find them after installation.
 - **Voice input**: the Linux build preserves the upstream voice-input path and verifies that it launches in the packaged app.
+- **Phone-based control (Computer Use)**: the phone-based remote control feature (Computer Use) is fully functional on Linux, matching the native macOS experience.
 
 ## Current Status
 
@@ -73,6 +74,7 @@ The Linux patch layer focuses on making the app feel native and predictable afte
 - common Linux editors and IDEs are offered for opening projects when their CLIs are installed
 - light and dark themes are both adapted for opaque Linux rendering
 - voice input works on Linux
+- phone-based control (Computer Use) works on Linux, matching the macOS behavior
 - the Linux build suppresses the upstream native menu bar
 - the current Linux build avoids the transparent-window and washed-out-theme glitches common in rough macOS-to-Linux ports
 
