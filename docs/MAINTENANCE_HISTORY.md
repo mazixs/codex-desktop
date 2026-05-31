@@ -2,6 +2,14 @@
 
 This document records recent repository maintenance work that changed the Linux adaptation layer.
 
+## 2026-05-31
+
+### Structural Resilient Patching & Tests Adaptation
+- Migrated all complex Javascript patches in `build.sh` (Skills loader `HL`, `VL`, `BL`, `lR` and `comment-preload.js`) to a dynamic Python-based regex-matching strategy with brace-balanced parsing (see [ADR 0002](file:///home/mazix/Documents/GitHub/codex-desktop/docs/adr/0002-dynamic-python-based-patching-strategy.md)).
+- Fixed a syntax error in the generated `HL` skills loader due to duplicated trailing curly braces (`}}`), ensuring correct syntax validation on newer DMG builds.
+- Refactored `tests/patch-regression.sh` to make the Sparkle, setBadgeCount, and menu-suppression tests variable-agnostic by utilizing regex matches instead of hardcoded string matching.
+- Verified that all regression checks (`./tests/patch-regression.sh`) and static analysis tests (`pnpm run verify`) pass successfully against upstream version `26.527.31326`.
+
 ## 2026-05-29
 
 ### Upstream Refresh
