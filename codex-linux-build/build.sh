@@ -2055,14 +2055,11 @@ PY
     log "Patching setBadgeCount guard in main bundle..."
     python3 - "$main_bundle" <<'PY'
 import sys
+import re
 path = sys.argv[1]
 content = open(path, "r", encoding="utf-8").read()
-needle = "n.app.setBadgeCount(i.count)"
-replacement = "n.app.setBadgeCount?.(i.count)"
-if needle in content:
-    content = content.replace(needle, replacement)
-else:
-    print("WARN: Could not find setBadgeCount needle in main bundle", file=sys.stderr)
+# Use regex to be resilient to build-time variable renaming
+content = re.sub(r'(\w+)\.app\.setBadgeCount\(([^)]+)\)', r'\1.app.setBadgeCount?.(\2)', content)
 open(path, "w", encoding="utf-8").write(content)
 PY
 
@@ -2076,29 +2073,44 @@ PY
         log "Patching Sparkle auto-updater in $(basename "$drop_handler_bundle")..."
         python3 - "$drop_handler_bundle" <<'PY'
 import sys
+import re
 path = sys.argv[1]
 content = open(path, "r", encoding="utf-8").read()
 
-# 1. Disable loading of sparkle.node and logging failure on Linux
-needle_load = "try{t=gI((0,i.join)(process.resourcesPath,`native`,`sparkle.node`))}catch(e){n=e}if(!t){hI().error(`Failed to load native Sparkle addon`,{safe:{},sensitive:{error:n}}),this.lastUnavailableReason=`failed to load native sparkle addon`;return}"
-replacement_load = "try{t=process.platform===`linux`?null:gI((0,i.join)(process.resourcesPath,`native`,`sparkle.node`))}catch(e){n=e}if(!t){if(process.platform!==`linux` && hI())hI().error(`Failed to load native Sparkle addon`,{safe:{},sensitive:{error:n}});this.lastUnavailableReason=process.platform===`linux`?`unsupported platform`:`failed to load native sparkle addon`;return}"
-
-# 2. Disable updater check/install methods
-needle_check = "async checkForUpdates(){if(!this.updater){"
-replacement_check = "async checkForUpdates(){if(process.platform===`linux`)return;if(!this.updater){"
-
-needle_install = "async installUpdatesIfAvailable(){if(!this.updater){"
-replacement_install = "async installUpdatesIfAvailable(){if(process.platform===`linux`)return;if(!this.updater){"
-
-needle_bg = "async checkForUpdatesInBackground(){"
-replacement_bg = "async checkForUpdatesInBackground(){if(process.platform===`linux`)return;"
-
 patched = False
-if needle_load in content:
-    content = content.replace(needle_load, replacement_load)
+
+# 1. Disable loading of sparkle.node and logging failure on Linux using regex
+pattern_load = r"try\s*\{\s*(\w+)\s*=\s*(\w+)\((?:\(0,\s*(\w+)\.join\)|[^)]*?join)\(process\.resourcesPath,\s*[`'\"]native[`'\"],\s*[`'\"]sparkle\.node[`'\"]\)\)\s*\}\s*catch\s*\(\s*(\w+)\s*\)\s*\{\s*(\w+)\s*=\s*\4\s*\}\s*if\s*\(\s*!\s*\1\s*\)\s*\{\s*(\w+\(\)|\w+)\.error\(\s*[`'\"]Failed to load native Sparkle addon[`'\"]\s*,\s*\{\s*safe\s*:\s*\{\s*\}\s*,\s*sensitive\s*:\s*\{\s*error\s*:\s*\5\s*\}\s*\}\s*\)\s*,\s*this\.lastUnavailableReason\s*=\s*[`'\"]failed to load native sparkle addon[`'\"]\s*;\s*return\s*\}"
+
+match = re.search(pattern_load, content)
+if match:
+    t_var = match.group(1)
+    gI_func = match.group(2)
+    i_var = match.group(3) or "path"
+    e_var = match.group(4)
+    n_var = match.group(5)
+    hI_func = match.group(6)
+    
+    replacement_load = (
+        f"try{{ {t_var} = process.platform === 'linux' ? null : {gI_func}((0,{i_var}.join)(process.resourcesPath,'native','sparkle.node')) }} "
+        f"catch({e_var}){{ {n_var} = {e_var} }} "
+        f"if(!{t_var}){{ if(process.platform !== 'linux') {hI_func}.error('Failed to load native Sparkle addon',{{safe:{{}},sensitive:{{error:{n_var}}}}}); "
+        f"this.lastUnavailableReason = process.platform === 'linux' ? 'unsupported platform' : 'failed to load native sparkle addon'; return; }}"
+    )
+    content = content.replace(match.group(0), replacement_load)
     patched = True
 else:
     print("WARN: Could not find sparkle.node load needle in drop handler", file=sys.stderr)
+
+# 2. Disable updater check/install methods
+needle_check = "async checkForUpdates(){"
+replacement_check = "async checkForUpdates(){if(process.platform===`linux`)return;"
+
+needle_install = "async installUpdatesIfAvailable(){"
+replacement_install = "async installUpdatesIfAvailable(){if(process.platform===`linux`)return;"
+
+needle_bg = "async checkForUpdatesInBackground(){"
+replacement_bg = "async checkForUpdatesInBackground(){if(process.platform===`linux`)return;"
 
 if needle_check in content:
     content = content.replace(needle_check, replacement_check)
