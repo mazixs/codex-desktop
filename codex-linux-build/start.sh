@@ -217,6 +217,35 @@ if [ -z "$NODE_BIN_RESOLVED" ]; then
     exit 1
 fi
 
+clean_stale_plugins_cache() {
+    local version_file="${HOME:-}/.codex/.last-run-version"
+    local current_version=""
+    local node_path="$1"
+    
+    if [ -f "$DIST_DIR/package.json" ] && [ -x "$node_path" ]; then
+        if [[ "$node_path" == *"/electron/dist/electron" ]]; then
+            current_version="$(ELECTRON_RUN_AS_NODE=1 "$node_path" -e 'console.log(require(process.argv[1]).version)' "$DIST_DIR/package.json" 2>/dev/null || true)"
+        else
+            current_version="$("$node_path" -e 'console.log(require(process.argv[1]).version)' "$DIST_DIR/package.json" 2>/dev/null || true)"
+        fi
+    fi
+    
+    if [ -n "$current_version" ]; then
+        local last_version=""
+        [ -f "$version_file" ] && last_version="$(cat "$version_file" 2>/dev/null || true)"
+        
+        if [ "$current_version" != "$last_version" ]; then
+            log "Version changed from '$last_version' to '$current_version'. Cleaning stale plugins cache..."
+            rm -rf "${HOME:-}/.codex/plugins/cache/openai-bundled"
+            rm -rf "${HOME:-}/.codex/plugins/cache/openai-bundled-dev"
+            rm -rf "${HOME:-}/.codex/.tmp/bundled-marketplaces"
+            mkdir -p "$(dirname "$version_file")"
+            echo "$current_version" > "$version_file"
+        fi
+    fi
+}
+clean_stale_plugins_cache "$NODE_BIN_RESOLVED"
+
 if CODEX_CLI_PATH_RESOLVED="$(resolve_codex_cli || true)"; then
     export CODEX_CLI_PATH="$CODEX_CLI_PATH_RESOLVED"
     log "Using Codex CLI at $CODEX_CLI_PATH"
