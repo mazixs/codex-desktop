@@ -2138,6 +2138,276 @@ PY
         warn "Sparkle drop handler bundle not found"
     fi
 
+    # =====================================================================
+    # --- Dynamic python patches for Skills and Comment Preload ---
+    # Resilient to build-time variable renaming and obfucation.
+    # =====================================================================
+    log "Applying dynamic Python patches to Main, Skills, and Comment Preload bundles..."
+    python3 - "$main_bundle" "$skills_bundle" "$comment_preload" <<'PY'
+import sys
+import os
+import re
+
+main_path = sys.argv[1]
+skills_path = sys.argv[2]
+comment_path = sys.argv[3]
+
+# 1. Patch main bundle (Skills path function)
+if os.path.exists(main_path):
+    print("Patching main bundle skills path function...")
+    content = open(main_path, "r", encoding="utf-8").read()
+    pattern = r"function\s+(\w+)\(\)\{\s*let\s+(\w+)\s*=\s*(\w+)\.app\.getAppPath\(\)\s*;\s*if\s*\(\s*\3\.app\.isPackaged\s*\)\s*return\s+(\w+)\.join\(\2,[\x60\x27\x22]skills[\x60\x27\x22]\)\s*;\s*let\s+(\w+)\s*=\s*\4\.join\(\2,[\x60\x27\x22]assets[\x60\x27\x22],[\x60\x27\x22]skills[\x60\x27\x22]\)\s*;\s*if\s*\(\s*\(0\s*,\s*(\w+)\.existsSync\)\(\5\)\s*\)\s*return\s+\5\s*;\s*let\s+(\w+)\s*=\s*\4\.join\(\2,[\x60\x27\x22]\.\.[\x60\x27\x22],[\x60\x27\x22]assets[\x60\x27\x22],[\x60\x27\x22]skills[\x60\x27\x22]\)\s*;\s*return\s*\(0\s*,\s*\6\.existsSync\)\(\7\)\s*\?\s*\7\s*:\s*null\s*\}"
+    match = re.search(pattern, content)
+    if match:
+        func_name = match.group(1)
+        e_var = match.group(2)
+        i_var = match.group(3)
+        o_var = match.group(4)
+        t_var = match.group(5)
+        c_var = match.group(6)
+        n_var = match.group(7)
+        
+        replacement = (
+            f"function {func_name}(){{"
+            f"let {e_var}={i_var}.app.getAppPath(),{t_var}={o_var}.join({e_var},`skills`);"
+            f"if((0,{c_var}.existsSync)({t_var}))return {t_var};"
+            f"if({i_var}.app.isPackaged)return {t_var};"
+            f"let {n_var}={o_var}.join({e_var},`assets`,`skills`);"
+            f"if((0,{c_var}.existsSync)({n_var}))return {n_var};"
+            f"let r={o_var}.join({e_var},`..`,`skills`);"
+            f"if((0,{c_var}.existsSync)(r))return r;"
+            f"let a={o_var}.join({e_var},`..`,`assets`,`skills`);"
+            f"return(0,{c_var}.existsSync)(a)?a:null}}"
+        )
+        content = content.replace(match.group(0), replacement)
+        open(main_path, "w", encoding="utf-8").write(content)
+        print("  Main bundle patched successfully.")
+    else:
+        print("  WARN: Skills path function pattern not found in main bundle.")
+
+# 2. Patch skills bundle
+if os.path.exists(skills_path) and skills_path != main_path:
+    print("Patching skills bundle...")
+    content = open(skills_path, "r", encoding="utf-8").read()
+    
+    # 2.1 resolver
+    pattern_resolver = r"async\s+function\s+(\w+)\(\{\s*repoRoot\s*:\s*(\w+)\s*,\s*bundledRepoRoot\s*:\s*(\w+)\s*,\s*repoPath\s*:\s*(\w+)\s*,\s*path\s*:\s*(\w+)\s*,\s*appServerClient\s*:\s*(\w+)\s*\}\)\s*\{\s*let\s*(\w+)\s*=\s*(\w+)\(\2,\4,\5\)\s*;\s*if\s*\(\s*await\s*(\w+)\(\7,\6\)\s*\)\s*return\s+\7\s*;\s*if\s*\(\s*!\s*\3\s*\)\s*return\s+null\s*;\s*let\s*(\w+)\s*=\s*\8\(\3,\4,\s*(\w+)\.default\)\s*;\s*return\s+await\s*\9\(\10,\6\)\s*\?\s*\10\s*:\s*null\s*\}"
+    match_resolver = re.search(pattern_resolver, content)
+    if match_resolver:
+        lR_name = match_resolver.group(1)
+        e_var = match_resolver.group(2)
+        t_var = match_resolver.group(3)
+        n_var = match_resolver.group(4)
+        i_var = match_resolver.group(5)
+        a_var = match_resolver.group(6)
+        o_var = match_resolver.group(7)
+        uR_func = match_resolver.group(8)
+        dR_func = match_resolver.group(9)
+        s_var = match_resolver.group(10)
+        r_var = match_resolver.group(11)
+        
+        replacement_resolver = (
+            f"async function {lR_name}({{repoRoot:{e_var},bundledRepoRoot:{t_var},repoPath:{n_var},path:{i_var},appServerClient:{a_var}}}){{"
+            f"if({t_var}){{let {s_var}={uR_func}({t_var},{n_var},{r_var}.default);if(await {dR_func}({s_var},{a_var}))return {s_var}}}"
+            f"let {o_var}={uR_func}({e_var},{n_var},{i_var});return await {dR_func}({o_var},{a_var})?{o_var}:null}}"
+        )
+        content = content.replace(match_resolver.group(0), replacement_resolver)
+        print("  Skills resolver patched.")
+
+    # 2.2 enum
+    pattern_enum = r"async\s+function\s+(\w+)\(\{\s*repoRoot\s*:\s*(\w+)\s*,\s*recommendedRoots\s*:\s*(\w+)\s*,\s*path\s*:\s*(\w+)\s*,\s*appServerClient\s*:\s*(\w+)\s*\}\)\s*\{\s*let\s*(\w+)\s*=\s*new\s+Map\s*,\s*(\w+)\s*=\s*await\s+Promise\.all\(\3\.map\(async\s*(\w+)\s*=>\s*(\w+)\(\{\s*recommendedRoot\s*:\s*\8\s*,\s*repoRoot\s*:\s*\2\s*,\s*path\s*:\s*\4\s*,\s*appServerClient\s*:\s*\5\s*\}\)\)\)\s*;\s*for\s*\(\s*let\s*(\w+)\s*of\s*\7\s*\)\s*for\s*\(\s*let\s*(\w+)\s*of\s*\10\s*\)\s*\6\.has\(\11\.id\)\s*\|\|\s*\6\.set\(\11\.id\s*,\s*\11\)\s*;\s*return\s+Array\.from\(\6\.values\(\)\)\.sort\(\(\s*(\w+)\s*,\s*(\w+)\s*\)\s*=>\s*\12\.name\.localeCompare\(\13\.name\)\s*\)\s*\}"
+    match_enum = re.search(pattern_enum, content)
+    if match_enum:
+        VL_name = match_enum.group(1)
+        e_var = match_enum.group(2)
+        t_var = match_enum.group(3)
+        n_var = match_enum.group(4)
+        r_var = match_enum.group(5)
+        i_map = match_enum.group(6)
+        a_res = match_enum.group(7)
+        t_param = match_enum.group(8)
+        HL_func = match_enum.group(9)
+        
+        helpers = (
+            "function skillIconMimeType(e){switch(e){case '.svg':return 'image/svg+xml';case '.png':return 'image/png';case '.jpg':case '.jpeg':return 'image/jpeg';case '.webp':return 'image/webp';default:return null}}"
+            "async function normalizeSkillIconUrl(e,t,n,r){if(!e)return null;if(/^https?:\\/\\//i.test(e)||e.startsWith('data:'))return e;"
+            "let i=n.isAbsolute(e)?e:n.resolve(t,e),a=skillIconMimeType(n.extname(i).toLowerCase());if(!a)return i;"
+            "try{let e=await r.readFile(i,r);return `data:${a};base64,${Buffer.from(e).toString('base64')}`}catch{return i}}"
+            "function mergeRecommendedSkillLists(e,t){let n=new Map;for(let r of[...e,...t])n.has(r.id)||n.set(r.id,r);return Array.from(n.values()).sort((e,t)=>e.name.localeCompare(t.name))}"
+            "function logBundledSkillOverrides(e,t){let n=e.filter(e=>e.skillSource==='bundled-override').map(e=>e.id);return n.length>0&&NL().info('Using bundled skill overrides',{safe:{skillIds:n,baseSource:t},sensitive:{}}),e}"
+        )
+        
+        replacement_enum = (
+            f"{helpers}\n"
+            f"async function {VL_name}({{repoRoot:{e_var},recommendedRoots:{t_var},path:{n_var},appServerClient:{r_var},sourceTag:source_tag=null}}){{"
+            f"let {i_map}=new Map, {a_res}=await Promise.all({t_var}.map(async {t_param}=>{HL_func}({{recommendedRoot:{t_param},repoRoot:{e_var},path:{n_var},appServerClient:{r_var},sourceTag:source_tag}})));"
+            f"for(let e of {a_res})for(let t of e){i_map}.has(t.id)||{i_map}.set(t.id,t);"
+            f"return Array.from({i_map}.values()).sort((e,t)=>e.name.localeCompare(t.name))}}"
+        )
+        content = content.replace(match_enum.group(0), replacement_enum)
+        print("  Skills enum and helpers patched.")
+
+    # 2.3 loader
+    if match_enum:
+        pattern_loader = r"async\s+function\s+" + re.escape(HL_func) + r"\(\{\s*recommendedRoot\s*:\s*(\w+)\s*,\s*repoRoot\s*:\s*(\w+)\s*,\s*path\s*:\s*(\w+)\s*,\s*appServerClient\s*:\s*(\w+)\s*\}\)\s*\{\s*if\s*\(\s*!\s*await\s*(\w+)\(\1,\4\)\s*\)\s*return\s*\[\s*\]\s*;\s*let\s*(\w+)\s*=\s*await\s+(\w+)\.readdir\(\1,\4\)\s*;\s*return\s*\(\s*await\s+Promise\.all\(\6\.map\(async\s*(\w+)\s*=>\s*\{\s*if\s*\(\8\.startsWith\(`\.`\)\)return\s+null\s*;\s*let\s*(\w+)\s*=\s*\3\.join\(\1,\8\)\s*,\s*(\w+)\s*=\s*\(\s*await\s+\7\.stat\(\9,\4\)\s*\)\.isDirectory\(\)\s*,\s*(\w+)\s*=\s*\10\s*\?\s*\3\.join\(\9,`SKILL\.md`\)\s*:\s*\9\s*;\s*if\s*\(\s*!\s*await\s*\5\(\11,\4\)\s*\)return\s+null\s*;\s*let\s*(\w+)\s*=\s*(\w+)\(\s*await\s+\7\.readFile\(\11,\4\)\s*\)\s*,\s*(\w+)\s*=\s*await\s*(\w+)\(\{\s*path\s*:\s*\3\s*,\s*appServerClient\s*:\s*\4\s*,\s*skillRoot\s*:\s*\9\s*\}\)\s*,\s*(\w+)\s*=\s*\10\s*\?\s*\8\s*:\s*\3\.parse\(\8\)\.name\s*,\s*(\w+)\s*=\s*\12\.description\s*\?\?\s*\12\.shortDescription\s*\?\?\s*\16\s*,\s*(\w+)\s*=\s*await\s*(\w+)\(\{\s*path\s*:\s*\3\s*,\s*appServerClient\s*:\s*\4\s*,\s*skillRoot\s*:\s*\9\s*,\s*skillId\s*:\s*\16\s*,\s*iconSmall\s*:\s*\12\.iconSmall\s*\?\?\s*\14\.iconSmall\s*\?\?\s*null\s*,\s*iconLarge\s*:\s*\12\.iconLarge\s*\?\?\s*\14\.iconLarge\s*\?\?\s*null\s*,\s*isDirectory\s*:\s*\10\s*\}\)\s*,\s*(\w+)\s*=\s*\10\s*\?\s*(\w+)\(\3,\2,\9\)\s*:\s*\21\(\3,\2,\11\)\s*;\s*return\s*\{\s*id\s*:\s*\16\s*,\s*name\s*:\s*\12\.name\s*\?\?\s*\16\s*,\s*description\s*:\s*\17\s*,\s*shortDescription\s*:\s*\12\.shortDescription\s*\?\?\s*\14\.shortDescription\s*,\s*iconSmall\s*:\s*\18\.iconSmall\s*,\s*iconLarge\s*:\s*\18\.iconLarge\s*,\s*repoPath\s*:\s*\20\s*\}\s*\}\)\)\)\.filter\(\s*(\w+)\s*=>\s*\22\s*!=\s*null\s*\)"
+        match_loader = re.search(pattern_loader, content)
+        if match_loader:
+            e_var = match_loader.group(1)
+            t_var = match_loader.group(2)
+            n_var = match_loader.group(3)
+            r_var = match_loader.group(4)
+            rR_func = match_loader.group(5)
+            i_var = match_loader.group(6)
+            R_var = match_loader.group(7)
+            i_lambda = match_loader.group(8)
+            a_var = match_loader.group(9)
+            o_var = match_loader.group(10)
+            s_var = match_loader.group(11)
+            c_var = match_loader.group(12)
+            GL_func = match_loader.group(13)
+            l_var = match_loader.group(14)
+            qL_func = match_loader.group(15)
+            u_var = match_loader.group(16)
+            d_var = match_loader.group(17)
+            f_var = match_loader.group(18)
+            YL_func = match_loader.group(19)
+            p_var = match_loader.group(20)
+            tR_func = match_loader.group(21)
+            
+            await_keyword = "await" if "await" in match_loader.group(0) else ""
+            replacement_loader = (
+                f"async function {HL_func}({{recommendedRoot:{e_var},repoRoot:{t_var},path:{n_var},appServerClient:{r_var},sourceTag:source_tag=null}}){{"
+                f"if(!await {rR_func}({e_var},{r_var}))return[];"
+                f"let {i_var}=await {R_var}.readdir({e_var},{r_var});"
+                f"return(await Promise.all({i_var}.map(async {i_lambda}=>{{"
+                f"if({i_lambda}.startsWith('.'))return null;"
+                f"let {a_var}={n_var}.join({e_var},{i_lambda}),{o_var}=({await_keyword} {R_var}.stat({a_var},{r_var})).isDirectory(),{s_var}={o_var}?{n_var}.join({a_var},'SKILL.md'):{a_var};"
+                f"if(!await {rR_func}({s_var},{r_var}))return null;"
+                f"let {c_var}={GL_func}(await {R_var}.readFile({s_var},{r_var})),{l_var}=await {qL_func}({{path:{n_var},appServerClient:{r_var},skillRoot:{a_var}}}),"
+                f"{u_var}={o_var}?{i_lambda}:{n_var}.parse({i_lambda}).name,{d_var}={c_var}.description??{c_var}.shortDescription??{u_var},"
+                f"{f_var}=await {YL_func}({{path:{n_var},appServerClient:{r_var},skillRoot:{a_var},skillId:{u_var},iconSmall:{c_var}.iconSmall??{l_var}.iconSmall??null,iconLarge:{c_var}.iconLarge??{l_var}.iconLarge??null,isDirectory:{o_var}}}),"
+                f"{p_var}={o_var}?{tR_func}({n_var},{t_var},{a_var}):{tR_func}({n_var},{t_var},{s_var});"
+                f"return{{id:{u_var},name:{c_var}.name??{u_var},description:{d_var},shortDescription:{c_var}.shortDescription??{l_var}.shortDescription,"
+                f"iconSmall:await normalizeSkillIconUrl({f_var}.iconSmall,{a_var},{n_var},{r_var}),"
+                f"iconLarge:await normalizeSkillIconUrl({f_var}.iconLarge,{a_var},{n_var},{r_var}),"
+                f"repoPath:{p_var},skillSource:source_tag}}}}))).filter(e=>e!=null)"
+            )
+            content = content.replace(match_loader.group(0), replacement_loader)
+            print("  Skills loader patched.")
+
+    # 2.4 recommended loader (BL)
+    pattern_rec_loader = r"async\s+function\s+(\w+)\(\{\s*refresh\s*:\s*(\w+)\s*=\s*!1\s*,\s*preferWsl\s*:\s*(\w+)\s*=\s*!1\s*,\s*bundledRepoRoot\s*:\s*(\w+)\s*=\s*null\s*,\s*(?:appServerClient|hostConfig)\s*:\s*(\w+)\s*\}\)\s*\{([\s\S]*?try\s*\{[\s\S]*?\}\s*catch\s*\(\s*(\w+)\s*\)\s*\{[\s\S]*?return\s+(\w+)\(\)\.warning\(\s*[`'\"]Failed to load recommended skills[`'\"][\s\S]*?\}\s*\}\s*\})"
+    match_rec_loader = re.search(pattern_rec_loader, content)
+    if match_rec_loader and match_enum:
+        refresh_var = match_rec_loader.group(2)
+        prefer_wsl_var = match_rec_loader.group(3)
+        bundled_repo_var = match_rec_loader.group(4)
+        client_var = match_rec_loader.group(5)
+        body_text = match_rec_loader.group(6)
+        err_var = match_rec_loader.group(7)
+        log_func = match_rec_loader.group(8)
+        
+        vl_match = re.search(r"let\s+\w+\s*=\s*await\s+(\w+)\(\{\s*repoRoot\s*:", body_text)
+        VL_func = vl_match.group(1) if vl_match else VL_name
+        
+        try_match = re.search(r"try\s*\{\s*if\s*\(\s*!\s*(\w+)\s*&&\s*!\s*(\w+)\s*&&\s*!\s*(\w+)\s*&&\s*(\w+)\s*\)\s*\{\s*let\s+(\w+)\s*=\s*await\s+(\w+)\(\{\s*repoRoot\s*:\s*(\w+)\s*\?\?\s*(\w+)\s*,\s*recommendedRoots\s*:\s*(\w+)\s*\?\?\s*(\w+)\s*,\s*path\s*:\s*\7\s*\?\s*(\w+\.default|\w+)\s*:\s*(\w+)\s*,\s*appServerClient\s*:\s*(\w+)\s*\}\)\s*,\s*(\w+)\s*=\s*Date\.now\(\)\s*;\s*return\s+await\s+(\w+)\(\s*(\w+)\s*,\s*\{\s*fetchedAt\s*:\s*\14\s*,\s*skills\s*:\s*\5\s*\}\s*,\s*\12\s*,\s*\13\s*\)\s*,\s*\{\s*skills\s*:\s*\5\s*,\s*fetchedAt\s*:\s*\14\s*,\s*source\s*:\s*`bundled`\s*,\s*repoRoot\s*:\s*\7\s*\?\?\s*null\s*,\s*error\s*:\s*null\s*\}", body_text)
+        if try_match:
+            t_flag = try_match.group(1)
+            x_flag = try_match.group(2)
+            S_flag = try_match.group(3)
+            C_flag = try_match.group(4)
+            e_skills = try_match.group(5)
+            g_var = try_match.group(7)
+            u_var = try_match.group(8)
+            g_roots = try_match.group(9)
+            p_roots = try_match.group(10)
+            path_mod = try_match.group(11)
+            c_path = try_match.group(12)
+            a_client = try_match.group(13)
+            aR_func = try_match.group(15)
+            h_cache = try_match.group(16)
+            
+            def find_matching_brace(text, start_idx):
+                depth = 0
+                for idx in range(start_idx, len(text)):
+                    if text[idx] == '{':
+                        depth += 1
+                    elif text[idx] == '}':
+                        depth -= 1
+                        if depth == 0:
+                            return idx
+                return -1
+
+            refresh_part_match = re.search(r"let\s+(\w+)\s*=\s*!1\s*;\s*(\w+)\s*&&\s*\(\s*(\w+)\s*\|\|\s*!\s*(\w+)\s*\)\s*&&\s*\(([\s\S]*?),\s*\1\s*=\s*!0\s*\)\s*;\s*let\s+(\w+)\s*=\s*await\s+" + re.escape(VL_func) + r"\(\{\s*repoRoot\s*:\s*" + re.escape(u_var) + r"\s*,\s*recommendedRoots\s*:\s*" + re.escape(p_roots) + r"\s*,\s*path\s*:\s*" + re.escape(c_path) + r"\s*,\s*appServerClient\s*:\s*" + re.escape(a_client) + r"\s*\}\)\s*,\s*(\w+)\s*=\s*\1\s*\?\s*Date\.now\(\)\s*:\s*(\w+)\s*\?\.fetchedAt\s*\?\?\s*Date\.now\(\)\s*;\s*return\s+await\s+" + re.escape(aR_func) + r"\(\s*" + re.escape(h_cache) + r"\s*,\s*\{\s*fetchedAt\s*:\s*\7\s*,\s*skills\s*:\s*\6\s*\}\s*,\s*" + re.escape(c_path) + r"\s*,\s*" + re.escape(a_client) + r"\s*\)\s*,\s*\{\s*skills\s*:\s*\6\s*,\s*fetchedAt\s*:\s*\7\s*,\s*source\s*:\s*\1\s*\?\s*`git`\s*:\s*`cache`\s*,\s*repoRoot\s*:\s*" + re.escape(u_var) + r"\s*,\s*error\s*:\s*null\s*\}", body_text)
+            if refresh_part_match:
+                e_flag = refresh_part_match.group(1)
+                b_flag = refresh_part_match.group(2)
+                x_flag_again = refresh_part_match.group(3)
+                S_flag_again = refresh_part_match.group(4)
+                action_block = refresh_part_match.group(5)
+                n_skills = refresh_part_match.group(6)
+                i_time = refresh_part_match.group(7)
+                y_cache = refresh_part_match.group(8)
+                
+                new_try_catch = (
+                    f"let T=async()=> {C_flag}&&{g_var} ? {VL_func}({{repoRoot:{g_var},recommendedRoots:{g_roots} || [],path:{path_mod},appServerClient:{a_client},sourceTag:'bundled-override'}}) : []; "
+                    f"try{{ "
+                    f"if(!{t_flag}&&!{x_flag}&&!{S_flag}&&{C_flag}){{ "
+                    f"let e=logBundledSkillOverrides(await T(),'bundled'),t=Date.now(); "
+                    f"return await {aR_func}({h_cache},{{fetchedAt:t,skills:e}},{c_path},{a_client}),{{skills:e,fetchedAt:t,source:'bundled',repoRoot:{g_var}??null,error:null}} "
+                    f"}} "
+                    f"let {e_flag}=!1; "
+                    f"{b_flag}&&({x_flag}||!{S_flag})&&({action_block}, {e_flag}=!0); "
+                    f"let {n_skills}=await {VL_func}({{repoRoot:{u_var},recommendedRoots:{p_roots},path:{c_path},appServerClient:{a_client},sourceTag:{e_flag}?'git':'cache'}}), "
+                    f"{i_time}=logBundledSkillOverrides(mergeRecommendedSkillLists(await T().catch(()=>[]),{n_skills}),{e_flag}?'git':'cache'), "
+                    f"o_time={e_flag}?Date.now():{y_cache}?.fetchedAt??Date.now(); "
+                    f"return await {aR_func}({h_cache},{{fetchedAt:o_time,skills:{i_time}}},{c_path},{a_client}),{{skills:{i_time},fetchedAt:o_time,source:{e_flag}?'git':'cache',repoRoot:{u_var},error:null}} "
+                    f"}}catch({err_var}){{ "
+                    f"let t={err_var} instanceof Error?{err_var}.message:String({err_var}),n=!{S_flag}&&!{x_flag}&&{C_flag}&&{g_var}?{g_var}:{u_var},r=await T().catch(()=>[]); "
+                    f"return {log_func}().warning('Failed to load recommended skills',{{safe:{{}},sensitive:{{error:{err_var}}}}}),{y_cache}?{{skills:logBundledSkillOverrides(mergeRecommendedSkillLists(r,{y_cache}.skills),'cache'),fetchedAt:{y_cache}.fetchedAt,source:'cache',repoRoot:n,error:t}}:{{skills:r,fetchedAt:null,source:r.length>0?'bundled':'cache',repoRoot:n,error:t}} "
+                    f"}}"
+                )
+                
+                try_idx = body_text.find("try")
+                if try_idx != -1:
+                    catch_match = re.search(r"catch\s*\(\s*" + re.escape(err_var) + r"\s*\)\s*\{", body_text[try_idx:])
+                    if catch_match:
+                        catch_start_idx = try_idx + catch_match.end() - 1
+                        catch_end_idx = find_matching_brace(body_text, catch_start_idx)
+                        if catch_end_idx != -1:
+                            old_try_catch = body_text[try_idx:catch_end_idx+1]
+                            old_full_func = match_rec_loader.group(0)
+                            new_full_func = old_full_func.replace(old_try_catch, new_try_catch)
+                            content = content.replace(old_full_func, new_full_func)
+                            print("  Recommended skills loader (BL) patched.")
+
+    open(skills_path, "w", encoding="utf-8").write(content)
+    print("  Skills bundle patched successfully.")
+
+# 3. Patch comment-preload.js
+if os.path.exists(comment_path):
+    print("Patching comment-preload.js...")
+    content = open(comment_path, "r", encoding="utf-8").read()
+    
+    # 3.1 element anchor rect lookup
+    needle1 = "if(We&&N?.annotation.anchor.kind===`element`){let e=$e==null?null:vo($e);nt=e?.rect??Uo(N.annotation.anchor),it=e?.borderRadius"
+    replacement1 = "if(We&&N?.annotation.anchor.kind===`element`){nt=Uo(N.annotation.anchor),it=void 0"
+    if needle1 in content:
+        content = content.replace(needle1, replacement1)
+        print("  Comment preload Patch 1 applied.")
+        
+    # 3.2 marker list filtering
+    needle2 = "Je=(We?N?.kind===`comment`?me:[]:qe==null?me:me.filter(e=>e.id!==qe.id)).flatMap"
+    replacement2 = "Je=(We?Ue:qe==null?me:me.filter(e=>e.id!==qe.id)).flatMap"
+    if needle2 in content:
+        content = content.replace(needle2, replacement2)
+        print("  Comment preload Patch 2 applied.")
+        
+    open(comment_path, "w", encoding="utf-8").write(content)
+    print("  Comment preload bundle patched successfully.")
+
+PY
+
     # Verify patched bundles parse correctly
     node --check "$main_bundle"
     if [ -f "$comment_preload" ]; then

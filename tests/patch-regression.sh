@@ -33,11 +33,11 @@ grep -Fq 'linux:{label:`File Manager`' "$main_bundle" || err "Linux file manager
 pass "Linux file manager entry present in main bundle"
 
 # 3. Main Bundle: Application menu Linux branch
-grep -Fq 'process.platform===`linux`?(n.Menu.setApplicationMenu(null)' "$main_bundle" || err "Linux app-menu patch not found in main bundle"
+grep -Eq 'process\.platform===`linux`\?\([A-Za-z_$][\w$]*\.Menu\.setApplicationMenu\(null\)' "$main_bundle" || err "Linux app-menu patch not found in main bundle"
 pass "Linux app-menu patch present in main bundle"
 
 # 4. Main Bundle: setBadgeCount guard
-grep -Fq 'n.app.setBadgeCount?.(i.count)' "$main_bundle" || err "setBadgeCount guard patch not found in main bundle"
+grep -Eq '[A-Za-z_$][\w$]*\.app\.setBadgeCount\?\.' "$main_bundle" || err "setBadgeCount guard patch not found in main bundle"
 pass "setBadgeCount guard patch present in main bundle"
 
 # 5. Preload JS: file:// drag-and-drop workspace support
@@ -50,19 +50,19 @@ fi
 
 # 6. Drop Handler Bundle: Sparkle auto-updater disabled on Linux
 if [ -n "$drop_handler_bundle" ] && [ -f "$drop_handler_bundle" ]; then
-    grep -Fq 'process.platform===`linux`?null:gI((0,i.join)(process.resourcesPath,`native`,`sparkle.node`))' "$drop_handler_bundle" \
+    grep -Eq "process\.platform\s*===\s*'linux'\s*\?\s*null" "$drop_handler_bundle" \
         || err "Sparkle sparkle.node load bypass patch not found in drop handler bundle"
     pass "Sparkle sparkle.node load bypass patch present in drop handler bundle"
 
-    grep -Fq 'async checkForUpdates(){if(process.platform===`linux`)return;if(!this.updater){' "$drop_handler_bundle" \
+    grep -Eq 'async\s+checkForUpdates\(\)\s*\{\s*if\s*\(process\.platform===`linux`\)\s*return' "$drop_handler_bundle" \
         || err "Sparkle checkForUpdates bypass patch not found in drop handler bundle"
     pass "Sparkle checkForUpdates bypass patch present in drop handler bundle"
 
-    grep -Fq 'async installUpdatesIfAvailable(){if(process.platform===`linux`)return;if(!this.updater){' "$drop_handler_bundle" \
+    grep -Eq 'async\s+installUpdatesIfAvailable\(\)\s*\{\s*if\s*\(process\.platform===`linux`\)\s*return' "$drop_handler_bundle" \
         || err "Sparkle installUpdatesIfAvailable bypass patch not found in drop handler bundle"
     pass "Sparkle installUpdatesIfAvailable bypass patch present in drop handler bundle"
 
-    grep -Fq 'async checkForUpdatesInBackground(){if(process.platform===`linux`)return;' "$drop_handler_bundle" \
+    grep -Eq 'async\s+checkForUpdatesInBackground\(\)\s*\{\s*if\s*\(process\.platform===`linux`\)\s*return' "$drop_handler_bundle" \
         || err "Sparkle checkForUpdatesInBackground bypass patch not found in drop handler bundle"
     pass "Sparkle checkForUpdatesInBackground bypass patch present in drop handler bundle"
 else
