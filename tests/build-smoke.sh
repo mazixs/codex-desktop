@@ -47,8 +47,7 @@ grep -Fq 'linux:{label:`File Manager`' "$main_bundle" || err "Linux file manager
 pass "Linux file manager entry present"
 
 # App menu: Linux null-menu branch exists
-# shellcheck disable=SC2016
-grep -Fq 'process.platform===`linux`?(n.Menu.setApplicationMenu(null)' "$main_bundle" || err "Linux app-menu patch not found"
+grep -Eq 'process\.platform===`linux`\?\([A-Za-z_$][\w$]*\.Menu\.setApplicationMenu\(null\)' "$main_bundle" || err "Linux app-menu patch not found"
 pass "Linux app-menu patch present"
 
 # Comment-preload: stored-anchor screenshot path
