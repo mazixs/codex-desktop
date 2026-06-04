@@ -9,7 +9,7 @@ This document records recent repository maintenance work that changed the Linux 
 - Refreshed against the upstream DMG (Codex Desktop `26.601.21317`).
 - DMG SHA-256: `03f8e6758bc67b71af35295c42890a6b112fbd6d5789e9d7d63e4b328e1a05ec`.
 - Kept Electron runtime at `42.2.0`.
-- Kept `@openai/codex` CLI at `0.135.0`.
+- Bumped `@openai/codex` CLI to `0.137.0`.
 - Adjusted `tests/build-smoke.sh` to use regex-based application menu checks to handle variable name drift in minified bundles.
 - Verified that all regression checks (`./tests/patch-regression.sh`) and smoke tests (`./tests/build-smoke.sh`) pass successfully.
 
