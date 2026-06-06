@@ -1411,13 +1411,87 @@ PY
         'backgroundMaterial:"none"'  'backgroundMaterial:null' \
         'backgroundMaterial:`none`'  'backgroundMaterial:null'
 
-    # Keep the native menu auto-hidden only on Windows.
+    # Keep Electron's application menu alive on Linux so the in-app
+    # File/Edit/View/Window/Help buttons can popup real submenus via
+    # Menu.getApplicationMenu(), but hide the extra native window menubar.
     # shellcheck disable=SC2016
     replace_first_available "$main_bundle" 0 \
         '...process.platform===`win32`?{autoHideMenuBar:!0}:{}' \
         '...process.platform===`win32`?{autoHideMenuBar:!0}:{}' \
         '...process.platform===`win32`||process.platform===`linux`?{autoHideMenuBar:!0}:{}' \
         '...process.platform===`win32`?{autoHideMenuBar:!0}:{}'
+
+    python3 - "$main_bundle" <<'PY'
+import re
+import sys
+
+path = sys.argv[1]
+with open(path, "r", encoding="utf-8") as handle:
+    content = handle.read()
+
+if re.search(
+    r"process\.platform===`linux`&&[A-Za-z_$][\w$]*\.setMenuBarVisibility\(!1\),"
+    r"process\.platform===`win32`&&[A-Za-z_$][\w$]*\.removeMenu\(\)",
+    content,
+):
+    sys.exit(0)
+
+pattern = re.compile(
+    r"process\.platform===`win32`&&([A-Za-z_$][\w$]*)\.removeMenu\(\),\1\.on\(`closed`,"
+)
+
+def replacement(match: re.Match[str]) -> str:
+    window_var = match.group(1)
+    return (
+        f"process.platform===`linux`&&{window_var}.setMenuBarVisibility(!1),"
+        f"process.platform===`win32`&&{window_var}.removeMenu(),"
+        f"{window_var}.on(`closed`,"
+    )
+
+content, count = pattern.subn(replacement, content, count=1)
+if count == 0:
+    print("WARN: Could not patch Linux native menubar visibility", file=sys.stderr)
+
+with open(path, "w", encoding="utf-8") as handle:
+    handle.write(content)
+PY
+
+    python3 - "$main_bundle" <<'PY'
+import re
+import sys
+
+path = sys.argv[1]
+with open(path, "r", encoding="utf-8") as handle:
+    content = handle.read()
+
+if re.search(
+    r"\.Menu\.setApplicationMenu\([A-Za-z_$][\w$]*\),process\.platform===`linux`&&"
+    r"[A-Za-z_$][\w$]*\.BrowserWindow\.getAllWindows\(\)\.forEach\(",
+    content,
+):
+    sys.exit(0)
+
+pattern = re.compile(
+    r"([A-Za-z_$][\w$]*)\.Menu\.setApplicationMenu\(([A-Za-z_$][\w$]*)\),"
+    r"([A-Za-z_$][\w$]*)\(([A-Za-z_$][\w$]*)\)"
+)
+
+def replacement(match: re.Match[str]) -> str:
+    electron_var, menu_var, notify_func, notify_arg = match.groups()
+    return (
+        f"{electron_var}.Menu.setApplicationMenu({menu_var}),"
+        f"process.platform===`linux`&&{electron_var}.BrowserWindow.getAllWindows().forEach(e=>"
+        f"{{e.isDestroyed()||e.setMenuBarVisibility(!1)}}),"
+        f"{notify_func}({notify_arg})"
+    )
+
+content, count = pattern.subn(replacement, content, count=1)
+if count == 0:
+    print("WARN: Could not patch Linux application-menu refresh visibility", file=sys.stderr)
+
+with open(path, "w", encoding="utf-8") as handle:
+    handle.write(content)
+PY
 
     # =====================================================================
     # --- Add Linux file manager support ---

@@ -35,9 +35,10 @@ macOS relies on native compositor features (`vibrancy`, `backgroundMaterial`) fo
 | `visualEffectState:\`active\`` → `visualEffectState:null` | 1 | Neutralize macOS visual effect on HUD window. |
 | `backgroundMaterial:\`mica\`` → `backgroundMaterial:null` | 1 | Neutralize Windows Mica acrylic material. |
 | `backgroundMaterial:\`none\`` → `backgroundMaterial:null` | 1 | Neutralize Windows background material for opaque mode. |
-| `autoHideMenuBar` Windows guard → Windows only | 1 | Keep Linux product windows from auto-hiding the upstream native menu. |
+| `autoHideMenuBar` Windows guard → Windows only | 1 | Avoid Electron's Alt-revealed fallback menubar on Linux. |
+| Linux `setMenuBarVisibility(false)` | 2 | Hide the duplicate native Electron menubar on window creation and after application-menu refreshes while keeping `Menu.getApplicationMenu()` available for in-app menu buttons. |
 
-The `ap()` function in the main bundle returns `{backgroundColor, backgroundMaterial}` per window type. The `op()` function returns platform-specific window chrome options (`vibrancy`, `transparent`, `titleBarStyle`, etc.). Both are patched to produce Linux-safe values. The product Linux build now preserves the upstream application menu instead of nullifying `Menu.setApplicationMenu(...)`; the old menu-suppression patch was useful for the unpacked developer runtime but makes the product File/Edit/View/Window/Help menu inert.
+The `ap()` function in the main bundle returns `{backgroundColor, backgroundMaterial}` per window type. The `op()` function returns platform-specific window chrome options (`vibrancy`, `transparent`, `titleBarStyle`, etc.). Both are patched to produce Linux-safe values. The product Linux build now preserves the upstream application menu instead of nullifying `Menu.setApplicationMenu(...)`; the old menu-suppression patch was useful for the unpacked developer runtime but makes the product File/Edit/View/Window/Help menu inert. On Linux the native Electron window menubar is hidden, while the renderer-owned File/Edit/View/Window/Help controls still popup submenus through `Menu.getApplicationMenu()`.
 
 ### B. File Manager Target for Linux (main bundle)
 

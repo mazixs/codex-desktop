@@ -33,14 +33,21 @@ pass "Linux dark/light opaque background branch present in main bundle"
 grep -Fq 'linux:{label:`File Manager`' "$main_bundle" || err "Linux file manager entry not found in main bundle"
 pass "Linux file manager entry present in main bundle"
 
-# 3. Main Bundle: Product native menu is preserved on Linux
+# 3. Main Bundle: ApplicationMenu stays alive for in-app menu buttons, while
+# the duplicate native Electron menubar is hidden on Linux windows.
 if grep -Eq 'process\.platform===`linux`\?\([A-Za-z_$][\w$]*\.Menu\.setApplicationMenu\(null\)' "$main_bundle"; then
     err "Linux app-menu nullification patch is still present in main bundle"
 fi
 if grep -Fq 'process.platform===`win32`||process.platform===`linux`' "$main_bundle"; then
     err "Linux removeMenu patch is still present in main bundle"
 fi
-pass "Linux product native menu is preserved in main bundle"
+grep -Eq 'process\.platform===`linux`&&[A-Za-z_$][\w$]*\.setMenuBarVisibility\(!1\),process\.platform===`win32`&&[A-Za-z_$][\w$]*\.removeMenu\(\)' "$main_bundle" \
+    || err "Linux native Electron menubar hide patch not found in main bundle"
+grep -Eq '\.Menu\.setApplicationMenu\([A-Za-z_$][A-Za-z0-9_$]*\),process\.platform===`linux`&&[A-Za-z_$][A-Za-z0-9_$]*\.BrowserWindow\.getAllWindows\(\)\.forEach\([A-Za-z_$][A-Za-z0-9_$]*=>\{[A-Za-z_$][A-Za-z0-9_$]*\.isDestroyed\(\)\|\|[A-Za-z_$][A-Za-z0-9_$]*\.setMenuBarVisibility\(!1\)\}\)' "$main_bundle" \
+    || err "Linux application-menu refresh visibility patch not found in main bundle"
+grep -Fq 'Menu.getApplicationMenu()?.getMenuItemById' "$main_bundle" \
+    || err "In-app application-menu popup path not found in main bundle"
+pass "Linux ApplicationMenu is preserved while native Electron menubar is hidden in main bundle"
 
 # 4. Main Bundle: setBadgeCount guard
 grep -Eq '[A-Za-z_$][\w$]*\.app\.setBadgeCount\?\.' "$main_bundle" || err "setBadgeCount guard patch not found in main bundle"

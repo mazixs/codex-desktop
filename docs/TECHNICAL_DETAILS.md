@@ -43,13 +43,14 @@ Minified JavaScript requires exact structural `sed` replacements:
   4. `visualEffectState:\`active\`` → `visualEffectState:null` — neutralize macOS visual effect (HUD window).
   5. `backgroundMaterial:\`mica\`` → `backgroundMaterial:null` — neutralize Windows Mica acrylic.
   6. `backgroundMaterial:\`none\`` → `backgroundMaterial:null` — neutralize Windows opaque background material.
-  7. Keep `autoHideMenuBar` Windows-only so Linux product windows keep the upstream native menu visible.
+  7. Keep `autoHideMenuBar` Windows-only so Electron does not reveal an unlocalized Alt menu on Linux.
   8. Preserve the upstream application menu on Linux instead of extending `removeMenu()` or forcing `Menu.setApplicationMenu(null)`. The older dev-runtime workaround made File/Edit/View/Window/Help inert in product mode.
+  9. Hide the duplicate native Electron window menubar on Linux with `BrowserWindow.setMenuBarVisibility(false)` both when windows are created and after application-menu refreshes, while leaving `Menu.getApplicationMenu()` available for the app's own menu buttons.
 
 * **Key functions patched:**
   - `ap({platform, appearance, opaqueWindowsEnabled, prefersDarkColors})` — returns `{backgroundColor, backgroundMaterial}` per window type. After patching, non-transparent Linux windows return `{backgroundColor: prefersDarkColors ? dark : light, backgroundMaterial: null}` so light theme keeps its upstream light background.
   - `op({appearance, opaqueWindowsEnabled, platform})` — returns window chrome options (`vibrancy`, `transparent`, `titleBarStyle`). After patching, all macOS/Windows-specific properties are nullified.
-  - The application-menu refresh path is left intact on Linux so the product native menu remains functional.
+  - The application-menu refresh path is left intact on Linux so in-app File/Edit/View/Window/Help buttons can popup the real Electron submenus via `Menu.getApplicationMenu()`.
 
 * **Launch flags:** `start.sh` injects `--disable-gpu-compositing` and Wayland Ozone platform flags when appropriate.
 

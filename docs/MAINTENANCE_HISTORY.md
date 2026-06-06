@@ -17,7 +17,8 @@ This document records recent repository maintenance work that changed the Linux 
 - Disabled RPM shebang mangling for the bundled `/opt/codex-desktop` runtime so Fedora packaging does not rewrite the packaged Codex CLI to require `/usr/bin/node`.
 - Added verifier coverage that intentionally injects old `/opt/codex-desktop/dist` runtime paths and fails if Browser Use selects them.
 - Added verifier coverage for bundled plugin reconcile failures so CI catches missing product runtime resources directly.
-- Restored the upstream File/Edit/View/Window/Help native menu in product runtime by removing the legacy Linux `removeMenu()` and `Menu.setApplicationMenu(null)` patches.
+- Restored the upstream File/Edit/View/Window/Help application menu in product runtime by removing the legacy Linux `removeMenu()` and `Menu.setApplicationMenu(null)` patches.
+- Hid the duplicate native Electron window menubar on Linux with `setMenuBarVisibility(false)` on window creation and after application-menu refreshes, while preserving `Menu.getApplicationMenu()` for the app's own menu buttons and accelerators.
 
 ## 2026-06-05
 

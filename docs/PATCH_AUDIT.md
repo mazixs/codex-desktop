@@ -67,17 +67,18 @@
 | C4 | **UY window type (`panel` → `utility`)** | На macOS `type:'panel'` для utility windows; на Linux нужен `type:'utility'` | Да | `...platform===`linux`?{type:`utility`}:{}` | ✅ Работает |
 | C5 | **hotkeyWindowHome/Thread opacity** | `transparent:!1` на macOS → `transparent:platform!==`linux`` | Да |  Непрозрачность на Linux | ✅ Работает |
 | C6 | **Vibrancy / visualEffectState / backgroundMaterial** | `vibrancy:"menu"` → `null`, `visualEffectState:"active"` → `null`, `backgroundMaterial:"mica"` → `null` | Да — macOS/Windows эффекты | Замена на `null` | ✅ Работает |
-| C7 | **autoHideMenuBar** | Не прятать product-меню на Linux | Нет — UX | Оставляем `autoHideMenuBar` только для `win32` | ✅ Работает |
+| C7 | **autoHideMenuBar** | Не показывать Alt-revealed Electron fallback menu на Linux | Нет — UX | Оставляем `autoHideMenuBar` только для `win32` | ✅ Работает |
 | C8 | **removeMenu() legacy removed** | Не удалять меню окна на Linux | Нет — product UX | Не расширяем `win32` guard на Linux | ✅ Работает |
-| C9 | **Product application menu** | Сохранить File/Edit/View/Window/Help на Linux | Нет — product UX | Оставляем upstream `Menu.setApplicationMenu(...)` | ✅ Работает |
-| C10 | **Linux file manager** | Добавляет `xdg-open` для "Open folder" | Да — только darwin/win32 | `linux:{label:`File Manager`,detect:()=>`xdg-open`,...}` | ✅ Работает |
-| C11 | **Linux terminal** | Добавляет поддержку терминалов Linux (gnome-terminal, kitty, alacritty и т.д.) | Да — только darwin/win32 | Инжект 5 helper-функций + `linux:` платформа | ✅ Работает |
-| C12 | **Linux editor targets (structural)** | Добавляет `linuxDetect`/`linuxPathCommands`/`linuxArgs` в factory-функции редакторов | Да — только darwin/win32 | Regex-based structural patch | ✅ Работает |
-| C13 | **Editor instances** (Cursor, VS Code, Zed, Sublime, Windsurf, JetBrains, etc.) | Конкретные детекторы для каждого редактора | Да — пути `/Applications/...` | `linuxDetect`/`linuxPathCommands` для каждого | ✅ Работает |
-| C14 | **Skills path function** | Поиск `skills/` относительно `getAppPath()` | Нет — относится к упаковке | Добавлены fallback-пути (`../skills`, `../assets/skills`) | ✅ Работает |
-| C15 | **Skills loader: bundled overrides** | Поддержка `SKILLS_OVERRIDE_DIR` и merge-логики | Нет — Linux packaging | Динамический Python-патчинг | ✅ Работает |
-| C16 | **Skills loader: priority flip** | Bundled skills должны иметь приоритет над remote/git | Нет — Linux offline-first | Динамический Python-патчинг | ✅ Работает |
-| C17 | **comment-preload.js screenshots** | Стабилизация скриншотов аннотаций (отключает live element lookup) | Нет — баг рендеринга | Динамический Python-патчинг | ✅ Работает |
+| C9 | **Product application menu** | Сохранить File/Edit/View/Window/Help backend на Linux | Нет — product UX | Оставляем upstream `Menu.setApplicationMenu(...)` | ✅ Работает |
+| C10 | **Linux native menubar visibility** | Убрать дублирующую native Electron menubar, не ломая кнопки внутри приложения | Нет — UX | `setMenuBarVisibility(!1)` при создании окна и после `Menu.setApplicationMenu(...)` | ✅ Работает |
+| C11 | **Linux file manager** | Добавляет `xdg-open` для "Open folder" | Да — только darwin/win32 | `linux:{label:`File Manager`,detect:()=>`xdg-open`,...}` | ✅ Работает |
+| C12 | **Linux terminal** | Добавляет поддержку терминалов Linux (gnome-terminal, kitty, alacritty и т.д.) | Да — только darwin/win32 | Инжект 5 helper-функций + `linux:` платформа | ✅ Работает |
+| C13 | **Linux editor targets (structural)** | Добавляет `linuxDetect`/`linuxPathCommands`/`linuxArgs` в factory-функции редакторов | Да — только darwin/win32 | Regex-based structural patch | ✅ Работает |
+| C14 | **Editor instances** (Cursor, VS Code, Zed, Sublime, Windsurf, JetBrains, etc.) | Конкретные детекторы для каждого редактора | Да — пути `/Applications/...` | `linuxDetect`/`linuxPathCommands` для каждого | ✅ Работает |
+| C15 | **Skills path function** | Поиск `skills/` относительно `getAppPath()` | Нет — относится к упаковке | Добавлены fallback-пути (`../skills`, `../assets/skills`) | ✅ Работает |
+| C16 | **Skills loader: bundled overrides** | Поддержка `SKILLS_OVERRIDE_DIR` и merge-логики | Нет — Linux packaging | Динамический Python-патчинг | ✅ Работает |
+| C17 | **Skills loader: priority flip** | Bundled skills должны иметь приоритет над remote/git | Нет — Linux offline-first | Динамический Python-патчинг | ✅ Работает |
+| C18 | **comment-preload.js screenshots** | Стабилизация скриншотов аннотаций (отключает live element lookup) | Нет — баг рендеринга | Динамический Python-патчинг | ✅ Работает |
 
 ### Фаза D: `apply_linux_desktop_identity()`
 
@@ -245,7 +246,7 @@ Product runtime is now the only supported release and plugin-validation target. 
 * **Решение:** Написан и интегрирован в CI/CD скрипт [tests/patch-regression.sh](file:///home/mazix/Documents/GitHub/codex-desktop/tests/patch-regression.sh). В ходе текущих работ он был доработан и сделан устойчивым к динамическому изменению имен обфусцированных переменных в новых сборках DMG (использует гибкие регулярные выражения).
 
 #### REC-11: Сохранение `native-menu-locales/` в product artifact — **РЕАЛИЗОВАНО**
-* Product runtime сохраняет upstream native menu, поэтому локализации меню больше не считаются бесполезными на Linux и должны оставаться в артефакте.
+* Product runtime сохраняет upstream application menu как backend для renderer-owned File/Edit/View/Window/Help кнопок, поэтому локализации меню больше не считаются бесполезными на Linux и должны оставаться в артефакте.
 
 ---
 

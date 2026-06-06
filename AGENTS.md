@@ -5,6 +5,8 @@ This repository packages the official macOS Codex Desktop app for Linux. Most ed
 
 The supported runtime is the product-style Linux artifact, not the unpacked developer build. Product artifacts run a renamed Electron binary (`codex-desktop`) from `node_modules/electron/dist/resources/app.asar`, keep `app.isPackaged=true`, and load bundled plugins, skills, the packaged `codex` CLI resource, `node`, and `node_repl` from product `resources/`. The unpacked `electron dist/` path and `webview-server.js` are retained only as a development fallback for patch iteration; they can expose unstable states and test plugin versions that do not match the packaged product.
 
+Menu patching has a narrow Linux contract: do not nullify `Menu.setApplicationMenu(...)` or extend `removeMenu()` to Linux, because the renderer-owned File/Edit/View/Window/Help buttons use `Menu.getApplicationMenu()` to popup submenus. Hide only the duplicate native Electron window menubar with `BrowserWindow.setMenuBarVisibility(false)` on Linux windows and after application-menu refreshes.
+
 Treat `codex-linux-build/dist/`, `codex-linux-build/artifacts/`, `codex-linux-build/native-rebuild/`, and `codex_extracted/` as generated outputs or caches. Do not hand-edit them unless a task explicitly targets generated artifacts.
 When validating upstream bundle changes, remember that `./build.sh --clean` does not remove `codex_extracted/`. If a new `Codex.dmg` or a CI patch failure suggests upstream internals changed, delete `codex_extracted/` or build with a fresh DMG path to avoid testing against stale extracted sources.
 
