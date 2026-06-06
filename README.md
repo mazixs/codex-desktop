@@ -63,7 +63,7 @@ The Linux patch layer focuses on making the app feel native and predictable afte
 - **Project opening from Linux editors**: the app can offer installed Linux tools such as VS Code, VS Code Insiders, Cursor, Windsurf, Zed, Sublime Text, Android Studio, and JetBrains IDEs when opening a project.
 - **Codex backend on Linux**: the packaged launcher wires the Electron frontend to the Linux `@openai/codex` CLI instead of the macOS-only upstream backend binary.
 - **Packaged skills layout**: bundled skill overrides are copied into the Linux artifact and resolved from packaged paths, so the app can find them after installation.
-- **Stable bundled plugin runtime**: Browser Use, Chrome, and other bundled plugins are loaded from product `resources/plugins` with bundled `node` and `node_repl` paths. The launcher ignores stale inherited `CODEX_*` runtime paths by default so an older installed app cannot poison the active plugin runtime.
+- **Stable bundled plugin runtime**: Browser Use, Chrome, and other bundled plugins are loaded from product `resources/plugins` with packaged `codex`, `node`, and `node_repl` resources. The launcher ignores stale inherited `CODEX_*` runtime paths by default so an older installed app cannot poison the active plugin runtime.
 - **Voice input**: the Linux build preserves the upstream voice-input path and verifies that it launches in the packaged app.
 - **Phone-based control (Computer Use)**: the phone-based remote control feature (Computer Use) is fully functional on Linux, matching the native macOS experience.
 
@@ -75,7 +75,7 @@ The Linux patch layer focuses on making the app feel native and predictable afte
 - release notes are generated automatically from commit history between tags
 - CI runs workflow linting, shell validation, portable packaging, Arch install/launch smoke tests, and Debian install/launch smoke tests on GitHub Actions
 - the built-in file manager works on Linux and can open both file locations and individual files
-- Browser Use and Chrome bundled plugin resources are packaged and smoke-tested from product `resources/`
+- Browser Use and Chrome bundled plugin resources are packaged and smoke-tested from product `resources/`, including the `codex` CLI resource required by Chrome native-host sync
 - common Linux editors and IDEs are offered for opening projects when their CLIs are installed
 - light and dark themes are both adapted for opaque Linux rendering
 - voice input works on Linux
@@ -185,10 +185,10 @@ The repository treats CI/CD as a product contract, not a best-effort build:
 - Node is pinned to `24` in GitHub Actions
 - `pnpm` is activated only through `corepack` using the version from `codex-linux-build/package.json`
 - workflow syntax is linted with `actionlint`; shell scripts are linted with `shellcheck`
-- the portable artifact must contain bundled Electron, `resources/app.asar`, `app.asar.unpacked`, product plugin resources, Linux icons, packaged skill overrides, metadata, and a working launcher
+- the portable artifact must contain bundled Electron, `resources/app.asar`, `app.asar.unpacked`, product plugin resources, `resources/codex`, Linux icons, packaged skill overrides, metadata, and a working launcher
 - the Arch artifact must install through `pacman -U`, contain the bundled product runtime under `/opt/codex-desktop`, and survive a headless `xvfb-run` smoke launch
 - the Debian artifact must install through `dpkg -i`, contain the same product runtime layout, and survive the same headless smoke launch
-- launch smoke tests must report `packaged=true`, avoid React devtools, and prove Browser Use selects the product `resources/node_repl` instead of stale inherited `CODEX_*` paths
+- launch smoke tests must report `packaged=true`, avoid React devtools, prove Browser Use selects the product `resources/node_repl` instead of stale inherited `CODEX_*` paths, and fail on bundled plugin reconcile errors
 - releases publish only after the asset contract, checksums, metadata, and release notes all validate
 
 Repo-controlled regressions fail with deterministic messages. External failures (GitHub outages, upstream DMG CDN issues, apt/pacman mirror errors) are treated as retriable infrastructure failures.

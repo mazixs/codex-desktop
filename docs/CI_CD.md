@@ -21,7 +21,7 @@ Smoke build:
 
 - runs on non-PR events
 - builds the portable Linux artifact
-- verifies the portable bundle contains product `resources/app.asar`, `app.asar.unpacked`, bundled plugin resources, `node`, `node_repl`, and can launch under `xvfb-run` with `app.isPackaged=true`
+- verifies the portable bundle contains product `resources/app.asar`, `app.asar.unpacked`, bundled plugin resources, `codex`, `node`, `node_repl`, and can launch under `xvfb-run` with `app.isPackaged=true`
 - uploads the resulting archive, checksum, and build metadata as workflow artifacts
 - runs a second smoke job that converts the portable archive into an Arch `pkg.tar.zst` inside an `archlinux` container
 - installs that Arch package with `pacman -U` and runs a headless launch smoke test
@@ -36,7 +36,7 @@ Release steps:
 
 - installs the same build toolchain as CI
 - builds the portable artifact with `RELEASE_TAG=$GITHUB_REF_NAME`
-- verifies the portable bundle contains bundled Electron, product `app.asar`, packaged skills overrides, plugin resources, icons, metadata, and can launch under `xvfb-run`
+- verifies the portable bundle contains bundled Electron, product `app.asar`, packaged skills overrides, plugin resources, `codex`, icons, metadata, and can launch under `xvfb-run`
 - turns that artifact into a pacman package via `scripts/build-arch-package.sh` and `packaging/arch/PKGBUILD`
 - verifies the pacman package payload contract, installs it in the Arch container, and runs a headless launch smoke test
 - turns that artifact into a Debian package via `scripts/build-deb-package.sh`
@@ -188,7 +188,7 @@ Each packaged release contains:
 
 - `node_modules/electron/dist/resources/app.asar` adapted upstream application bundle
 - `node_modules/electron/dist/resources/app.asar.unpacked` rebuilt Linux native modules
-- `node_modules/electron/dist/resources/plugins`, `node`, and `node_repl` external runtime resources
+- `node_modules/electron/dist/resources/plugins`, `codex`, `node`, and `node_repl` external runtime resources
 - `node_modules/electron/dist/resources/node.sha256`, `node_repl.sha256`, and `node_repl.runtime.env` relocatable runtime integrity metadata
 - `start.sh` portable launcher
 - `node_modules/` runtime dependencies installed from the locked tool package
@@ -216,4 +216,4 @@ Where `<release-version>` is the git tag version (e.g. `0.2.0`) for tagged relea
 - External failures such as DMG/CDN/network outages, apt mirror issues, or GitHub service issues are treated as retriable infrastructure failures, not repository regressions.
 - The package name exposed to pacman is `codex-desktop-native`; runtime launcher names remain `codex-desktop`.
 - The Arch Linux release asset uses a platform-explicit filename, while the package metadata inside it still resolves to `codex-desktop-native` with pacman version/release fields.
-- Launch smoke tests intentionally inject stale `/opt/codex-desktop/dist` `CODEX_*` paths and fail if Browser Use selects them. Passing smoke requires `packaged=true` and the product `resources/node_repl` path.
+- Launch smoke tests intentionally inject stale `/opt/codex-desktop/dist` `CODEX_*` paths and fail if Browser Use selects them. Passing smoke requires `packaged=true`, the product `resources/node_repl` path, a packaged `resources/codex` CLI resource, and no bundled plugin reconcile errors.

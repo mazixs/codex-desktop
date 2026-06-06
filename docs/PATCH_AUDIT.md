@@ -91,6 +91,7 @@
 |---|------|------|-------------------|-----------------|--------|
 | E1 | **Ozone/Wayland flags** | `--ozone-platform=wayland` при `XDG_SESSION_TYPE=wayland` | Нет — Linux display server | Автоопределение | ✅ Работает |
 | E2 | **Browser Use env vars** | `CODEX_ELECTRON_RESOURCES_PATH`, `CODEX_BROWSER_USE_NODE_PATH`, `NODE_REPL_NODE_PATH`, `CODEX_NODE_REPL_PATH` | Нет — runtime wiring | По умолчанию выбирает активный product `resources/`, stale env разрешён только через `CODEX_DESKTOP_RESPECT_RUNTIME_ENV=1` | ✅ Работает |
+| E2a | **Chrome native-host CLI resource** | `resources/codex` | Нет — bundled plugin resource contract | Symlink на packaged `@openai/codex` CLI для product Electron resources | ✅ Работает |
 | E3 | **node_repl MCP auto-register** | `codex mcp add node_repl` | Нет — CLI интеграция | Авто-добавление MCP сервера | ✅ Работает |
 | E4 | **URL scheme handlers** | `codex://`, `codex-browser-sidebar://` | Да — xdg-mime | `xdg-mime default` | ✅ Работает |
 | E5 | **Electron binary robust extraction** | Скачивание Electron при отсутствии | Нет — portable artifact | `@electron/get` + unzip | ✅ Работает |
@@ -98,7 +99,7 @@
 
 ---
 
-Product runtime is now the only supported release and plugin-validation target. The unpacked `electron dist/` launcher remains useful for local patch iteration, but it runs with `app.isPackaged=false`, starts `webview-server.js`, and may expose unstable development state or test bundled plugin versions. Browser Use and Chrome validation must use the product artifact so plugin resources, `node`, and `node_repl` resolve from `node_modules/electron/dist/resources/`.
+Product runtime is now the only supported release and plugin-validation target. The unpacked `electron dist/` launcher remains useful for local patch iteration, but it runs with `app.isPackaged=false`, starts `webview-server.js`, and may expose unstable development state or test bundled plugin versions. Browser Use and Chrome validation must use the product artifact so plugin resources, `codex`, `node`, and `node_repl` resolve from `node_modules/electron/dist/resources/`.
 
 ## 3. Что осталось macOS-специфичным и НЕ пропатчено (GAP-анализ)
 

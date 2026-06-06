@@ -2627,6 +2627,7 @@ prepare_product_electron_binary() {
 stage_product_resources() {
     local package_dir="$1"
     local resources_dir="$package_dir/node_modules/electron/dist/resources"
+    local codex_source="$package_dir/node_modules/.bin/codex"
     local node_source="$BUILD_DIR/node"
     local node_repl_packaged_sha=""
     local node_packaged_sha=""
@@ -2639,6 +2640,13 @@ stage_product_resources() {
         exit 1
     fi
     cp -a "$BUILD_DIR/plugins" "$resources_dir/"
+
+    if [ ! -f "$codex_source" ]; then
+        err "Packaged Codex CLI is missing from $codex_source"
+        exit 1
+    fi
+    rm -f "$resources_dir/codex"
+    ln -s "../../../.bin/codex" "$resources_dir/codex"
 
     if [ ! -x "$BUILD_DIR/node_repl" ]; then
         err "Linux node_repl is missing from $BUILD_DIR/node_repl"

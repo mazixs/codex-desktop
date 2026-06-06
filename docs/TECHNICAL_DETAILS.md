@@ -21,10 +21,10 @@ Native Node.js extensions specific to the macOS build fail to load under Linux's
 
 ## 4. Product Packaging and `isPackaged`
 * Product artifacts pack the patched app back into `resources/app.asar` and launch a renamed Electron binary (`codex-desktop`) without passing an app directory. This keeps Electron on the packaged runtime branch (`app.isPackaged = true`).
-* External runtime helpers under `resources/` include relocatable checksum files, and `node_repl.runtime.env` records the pinned primary-runtime version, source URL, source SHA256, and packaged SHA256.
+* External runtime helpers under `resources/` include a packaged `codex` CLI symlink for bundled plugin native-host sync, relocatable checksum files, and `node_repl.runtime.env` records the pinned primary-runtime version, source URL, source SHA256, and packaged SHA256.
 * The old `electron dist/` flow is retained only as an unpacked development fallback. In that fallback, `webview-server.js` hosts `dist/webview` on `127.0.0.1:5175` to mimic the asset server expected by unpacked code.
 * The unpacked fallback is not a plugin validation target. It runs with `app.isPackaged = false` and can expose development-only state, dev/test bundled plugin catalog behavior, and stale `CODEX_*` runtime paths inherited from an already installed Codex Desktop process.
-* Product `start.sh` now derives Browser Use and Chrome runtime paths from the active artifact's `resources/` directory by default. This prevents an older `/opt/codex-desktop/dist/node_repl` or system `node` override from breaking the Browser Use plugin in a freshly packaged app. Maintainers can opt back into inherited paths only with `CODEX_DESKTOP_RESPECT_RUNTIME_ENV=1`.
+* Product `start.sh` now derives Browser Use and Chrome runtime paths from the active artifact's `resources/` directory by default. This prevents an older `/opt/codex-desktop/dist/node_repl` or system `node` override from breaking the Browser Use plugin in a freshly packaged app, while `resources/codex` keeps Chrome native-host resource sync inside the packaged Electron layout. Maintainers can opt back into inherited paths only with `CODEX_DESKTOP_RESPECT_RUNTIME_ENV=1`.
 
 ## 5. Main Process Patching (`main.js`)
 Minified JavaScript requires exact structural `sed` replacements:
