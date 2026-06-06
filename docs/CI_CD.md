@@ -216,4 +216,5 @@ Where `<release-version>` is the git tag version (e.g. `0.2.0`) for tagged relea
 - External failures such as DMG/CDN/network outages, apt mirror issues, or GitHub service issues are treated as retriable infrastructure failures, not repository regressions.
 - The package name exposed to pacman is `codex-desktop-native`; runtime launcher names remain `codex-desktop`.
 - The Arch Linux release asset uses a platform-explicit filename, while the package metadata inside it still resolves to `codex-desktop-native` with pacman version/release fields.
+- RPM builds disable Fedora shebang mangling for the bundled runtime so packaged Node entrypoints continue to resolve through the product launcher environment instead of `/usr/bin/node`.
 - Launch smoke tests intentionally inject stale `/opt/codex-desktop/dist` `CODEX_*` paths and fail if Browser Use selects them. Passing smoke requires `packaged=true`, the product `resources/node_repl` path, a packaged `resources/codex` CLI resource, and no bundled plugin reconcile errors.
