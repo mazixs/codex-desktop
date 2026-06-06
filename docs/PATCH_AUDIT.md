@@ -67,9 +67,9 @@
 | C4 | **UY window type (`panel` → `utility`)** | На macOS `type:'panel'` для utility windows; на Linux нужен `type:'utility'` | Да | `...platform===`linux`?{type:`utility`}:{}` | ✅ Работает |
 | C5 | **hotkeyWindowHome/Thread opacity** | `transparent:!1` на macOS → `transparent:platform!==`linux`` | Да |  Непрозрачность на Linux | ✅ Работает |
 | C6 | **Vibrancy / visualEffectState / backgroundMaterial** | `vibrancy:"menu"` → `null`, `visualEffectState:"active"` → `null`, `backgroundMaterial:"mica"` → `null` | Да — macOS/Windows эффекты | Замена на `null` | ✅ Работает |
-| C7 | **autoHideMenuBar** | Скрывать меню только на Win32 → добавить Linux | Нет — UX | `win32||linux` | ✅ Работает |
-| C8 | **removeMenu() на Linux** | Удаление нативного меню окна на Linux | Нет — UX | `win32||linux` → `removeMenu()` | ✅ Работает |
-| C9 | **setApplicationMenu(null)** | Полное отключение глобального меню приложения на Linux | Нет — UX | `process.platform===`linux`?Menu.setApplicationMenu(null)` | ✅ Работает |
+| C7 | **autoHideMenuBar** | Не прятать product-меню на Linux | Нет — UX | Оставляем `autoHideMenuBar` только для `win32` | ✅ Работает |
+| C8 | **removeMenu() legacy removed** | Не удалять меню окна на Linux | Нет — product UX | Не расширяем `win32` guard на Linux | ✅ Работает |
+| C9 | **Product application menu** | Сохранить File/Edit/View/Window/Help на Linux | Нет — product UX | Оставляем upstream `Menu.setApplicationMenu(...)` | ✅ Работает |
 | C10 | **Linux file manager** | Добавляет `xdg-open` для "Open folder" | Да — только darwin/win32 | `linux:{label:`File Manager`,detect:()=>`xdg-open`,...}` | ✅ Работает |
 | C11 | **Linux terminal** | Добавляет поддержку терминалов Linux (gnome-terminal, kitty, alacritty и т.д.) | Да — только darwin/win32 | Инжект 5 helper-функций + `linux:` платформа | ✅ Работает |
 | C12 | **Linux editor targets (structural)** | Добавляет `linuxDetect`/`linuxPathCommands`/`linuxArgs` в factory-функции редакторов | Да — только darwin/win32 | Regex-based structural patch | ✅ Работает |
@@ -90,22 +90,25 @@
 | # | Патч | Цель | macOS-специфично? | Linux-адаптация | Статус |
 |---|------|------|-------------------|-----------------|--------|
 | E1 | **Ozone/Wayland flags** | `--ozone-platform=wayland` при `XDG_SESSION_TYPE=wayland` | Нет — Linux display server | Автоопределение | ✅ Работает |
-| E2 | **Browser Use env vars** | `CODEX_ELECTRON_RESOURCES_PATH`, `CODEX_BROWSER_USE_NODE_PATH`, `CODEX_NODE_REPL_PATH` | Нет — runtime wiring | Экспорт переменных | ✅ Работает |
+| E2 | **Browser Use env vars** | `CODEX_ELECTRON_RESOURCES_PATH`, `CODEX_BROWSER_USE_NODE_PATH`, `NODE_REPL_NODE_PATH`, `CODEX_NODE_REPL_PATH` | Нет — runtime wiring | По умолчанию выбирает активный product `resources/`, stale env разрешён только через `CODEX_DESKTOP_RESPECT_RUNTIME_ENV=1` | ✅ Работает |
 | E3 | **node_repl MCP auto-register** | `codex mcp add node_repl` | Нет — CLI интеграция | Авто-добавление MCP сервера | ✅ Работает |
 | E4 | **URL scheme handlers** | `codex://`, `codex-browser-sidebar://` | Да — xdg-mime | `xdg-mime default` | ✅ Работает |
 | E5 | **Electron binary robust extraction** | Скачивание Electron при отсутствии | Нет — portable artifact | `@electron/get` + unzip | ✅ Работает |
+| E6 | **Product app.asar launch** | Запуск без `dist/` argument | Нет — Electron packaging contract | `codex-desktop` binary + `resources/app.asar`, `app.isPackaged=true` | ✅ Работает |
 
 ---
+
+Product runtime is now the only supported release and plugin-validation target. The unpacked `electron dist/` launcher remains useful for local patch iteration, but it runs with `app.isPackaged=false`, starts `webview-server.js`, and may expose unstable development state or test bundled plugin versions. Browser Use and Chrome validation must use the product artifact so plugin resources, `node`, and `node_repl` resolve from `node_modules/electron/dist/resources/`.
 
 ## 3. Что осталось macOS-специфичным и НЕ пропатчено (GAP-анализ)
 
 ### 3.1 🔴 High Risk — потенциально ломает функциональность на Linux
 
-#### GAP-1: `native-menu-locales/` — macOS Native Menus
+#### GAP-1: `native-menu-locales/` — Product Native Menus
 - **Где:** `codex_extracted/app_unpacked/native-menu-locales/` (~50 JSON-файлов локализаций)
 - **Что это:** Локализации для нативного macOS меню (NSMenu). Upstream использует `native-menu-locales/` для генерации меню через Electron `Menu.buildFromTemplate()` или нативные API.
-- **Проблема:** На Linux мы отключаем меню через `setApplicationMenu(null)` (C9). Эти локализации становятся мёртвым грузом, но их присутствие не ломает функциональность. Однако если upstream начнёт использовать эти локали для чего-то другого (например, контекстное меню), может потребоваться адаптация.
-- **Рекомендация:** Мониторить. Пока не требует патча.
+- **Текущее решение:** В product runtime меню больше не отключается, поэтому локали могут участвовать в построении File/Edit/View/Window/Help и не считаются мёртвым грузом.
+- **Рекомендация:** Не удалять из артефакта без отдельной проверки product menu smoke.
 
 #### GAP-2: `process.platform===`darwin`` в `worker.js` (2 вхождения) и `app-session-*.js` (2 вхождения)
 - **Где:** `worker.js`, `app-session-*.js`
@@ -240,8 +243,8 @@
 #### REC-10: Автоматизированный regression test для патчей — **РЕАЛИЗОВАНО**
 * **Решение:** Написан и интегрирован в CI/CD скрипт [tests/patch-regression.sh](file:///home/mazix/Documents/GitHub/codex-desktop/tests/patch-regression.sh). В ходе текущих работ он был доработан и сделан устойчивым к динамическому изменению имен обфусцированных переменных в новых сборках DMG (использует гибкие регулярные выражения).
 
-#### REC-11: Удаление `native-menu-locales/` из артефакта — *Запланировано*
-* Эти файлы занимают место и бесполезны на Linux. Планируется исключить из `dist/` при копировании.
+#### REC-11: Сохранение `native-menu-locales/` в product artifact — **РЕАЛИЗОВАНО**
+* Product runtime сохраняет upstream native menu, поэтому локализации меню больше не считаются бесполезными на Linux и должны оставаться в артефакте.
 
 ---
 
@@ -251,7 +254,7 @@
 |-----------|-------------------|------------|---------------|------------------|-------------------|
 | DMG / Codex.app | Да | Упаковка / подпись | ✅ Да | asar extract | Нет |
 | app.asar | Нет | Архив приложения | ✅ Да | asar extract | Нет |
-| `native-menu-locales/` | Да | Локализации NSMenu | ⚠️ Частично | Меню отключено | Мониторить |
+| `native-menu-locales/` | Да | Локализации NSMenu | ✅ Да | Product menu сохранено | Нет |
 | `sparkle.node` | Да | Автоапдейт | ✅ Да | Заблокирован и вырезан | Нет |
 | `node_repl` (Mach-O) | Да | MCP / REPL runtime | ✅ Да | Замена на Linux ELF + glibc check | Нет |
 | `better-sqlite3.node` | Да | База данных | ✅ Да | Пересборка + V8 patch | Нет |
@@ -259,7 +262,7 @@
 | `main-*.js` window effects | Да | Vibrancy, backgroundMaterial | ✅ Да | null + opaque bg | Нет |
 | `main-*.js` UY window type | Да | `type:'panel'` | ✅ Да | `type:'utility'` для linux | Нет |
 | `main-*.js` hotkey windows | Да | Прозрачность | ✅ Да | `transparent:platform!==linux` | Нет |
-| `main-*.js` app menu | Да | setApplicationMenu | ✅ Да | setApplicationMenu(null) | Нет |
+| `main-*.js` app menu | Да | setApplicationMenu | ✅ Да | Upstream menu сохранено | Нет |
 | `main-*.js` open targets | Да | Darwin/Win32 only | ✅ Да | Инжект linux-платформ | Нет |
 | `main-*.js` skills loader | Нет | Git/cached skills | ✅ Да | Динамический Python-патчинг | Нет |
 | `comment-preload.js` | Нет | Screenshot stabilization | ✅ Да | Динамический Python-патчинг | Нет |
@@ -288,7 +291,7 @@
 | P1 | Защитить вызовы `app.dock.setBadgeCount` | ✅ Выполнено |
 | P1 | Добавить автоопределение glibc для `node_repl` | ✅ Выполнено |
 | P2 | Очистка и оптимизация source maps | Запланировано |
-| P2 | Удалить `native-menu-locales` из артефакта | Запланировано |
+| P2 | Сохранить `native-menu-locales` для product menu | ✅ Выполнено |
 
 ---
 

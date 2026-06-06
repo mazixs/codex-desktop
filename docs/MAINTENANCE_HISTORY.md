@@ -2,14 +2,28 @@
 
 This document records recent repository maintenance work that changed the Linux adaptation layer.
 
+## 2026-06-06
+
+### Product Runtime Hardening
+
+- Refreshed against the latest upstream DMG (Codex Desktop `26.602.40724`).
+- DMG SHA-256: `23ead69adccc6910912cef1e0c73fb7667e4d07fcce7cfcad45eae54d38ad897`.
+- Kept the Linux Electron runtime pinned to upstream-compatible `42.1.0`.
+- Made product `resources/app.asar` the documented and verified runtime for local package builds, portable artifacts, and distro packages.
+- Documented that the unpacked `electron dist/` developer fallback is not a stable plugin validation target because it runs with `app.isPackaged=false` and can expose development plugin state or test plugin versions.
+- Hardened `start.sh` so Browser Use, Chrome, and bundled plugin runtime paths are selected from the active product `resources/` directory by default instead of stale inherited `CODEX_*` paths.
+- Added verifier coverage that intentionally injects old `/opt/codex-desktop/dist` runtime paths and fails if Browser Use selects them.
+- Restored the upstream File/Edit/View/Window/Help native menu in product runtime by removing the legacy Linux `removeMenu()` and `Menu.setApplicationMenu(null)` patches.
+
 ## 2026-06-05
 
 ### Upstream Refresh
 
 - Refreshed against the upstream DMG (Codex Desktop `26.601.21317`).
 - DMG SHA-256: `03f8e6758bc67b71af35295c42890a6b112fbd6d5789e9d7d63e4b328e1a05ec`.
-- Kept Electron runtime at `42.2.0`.
-- Kept `@openai/codex` CLI at `0.135.0`.
+- Pinned the Linux Electron runtime to upstream-compatible `42.1.0`.
+- Bumped `@openai/codex` CLI to `0.137.0`.
+- Switched portable and distro artifacts to product-style `resources/app.asar` layout with a renamed `codex-desktop` Electron binary so runtime launches with `app.isPackaged=true`.
 - Adjusted `tests/build-smoke.sh` to use regex-based application menu checks to handle variable name drift in minified bundles.
 - Verified that all regression checks (`./tests/patch-regression.sh`) and smoke tests (`./tests/build-smoke.sh`) pass successfully.
 
@@ -220,10 +234,10 @@ Migrated the main-bundle patches from exact string matching to regex-based detec
 ### Validation
 
 - `rm -rf codex_extracted`
-- `./build.sh --clean`
-- `./build.sh --clean --package --dmg /tmp/Codex.dmg`
-- `./build.sh --package`
-- `./start.sh`
-- `pnpm run verify`
+- `./codex-linux-build/build.sh --clean --fresh-extract --package --dmg /tmp/Codex.dmg`
+- `./tests/patch-regression.sh`
+- `./tests/build-smoke.sh`
+- `./scripts/verify-portable-artifact.sh --artifacts-dir codex-linux-build/artifacts`
+- `cd codex-linux-build && pnpm run verify`
 
-The current baseline is a launchable Linux build with opaque window backgrounds, a suppressed native menu bar, a working Linux file-manager target, and packaged portable/Arch/Debian outputs.
+The current baseline is a launchable Linux product build with opaque window backgrounds, a functional native menu bar, a working Linux file-manager target, and packaged portable/Arch/Debian outputs.

@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 # shellcheck source=./ci-lib.sh
+# shellcheck disable=SC1091
 source "$SCRIPT_DIR/ci-lib.sh"
 
 ARTIFACTS_DIR="$PROJECT_ROOT/codex-linux-build/artifacts"
@@ -56,13 +57,15 @@ main() {
     local archive_size=0
     local extract_root=""
     local main_entry_path=""
+    local electron_bin=""
+    local resources_dir=""
     local size=""
     local launch_log=""
     local launch_rc=0
 
     parse_args "$@"
 
-    for cmd in node tar timeout xvfb-run grep stat mktemp; do
+    for cmd in node tar timeout xvfb-run grep stat mktemp file; do
         require_command "$cmd"
     done
 
@@ -83,43 +86,93 @@ main() {
         ci_fail "Portable archive did not extract into a top-level directory"
     fi
 
-    require_dir "$extract_root/dist"
-    require_file "$extract_root/dist/webview-server.js"
     require_file "$extract_root/build-metadata.env"
     require_file "$extract_root/start.sh"
     require_file "$extract_root/node_modules/electron/dist/electron"
-    require_file "$extract_root/dist/skills/.curated/playwright/SKILL.md"
+    require_file "$extract_root/node_modules/electron/dist/codex-desktop"
+    resources_dir="$extract_root/node_modules/electron/dist/resources"
+    electron_bin="$extract_root/node_modules/electron/dist/codex-desktop"
+    require_file "$resources_dir/app.asar"
+    require_dir "$resources_dir/app.asar.unpacked"
+    require_dir "$resources_dir/plugins/openai-bundled"
+    require_file "$resources_dir/plugins/openai-bundled/.agents/plugins/marketplace.json"
+    require_file "$resources_dir/node"
+    require_file "$resources_dir/node.sha256"
+    require_file "$resources_dir/node_repl"
+    require_file "$resources_dir/node_repl.sha256"
+    require_file "$resources_dir/node_repl.runtime.env"
+    assert_file_contains "$resources_dir/node_repl.runtime.env" '^NODE_REPL_RUNTIME_VERSION=' "node_repl runtime metadata is missing the source version"
+    assert_file_contains "$resources_dir/node_repl.runtime.env" '^NODE_REPL_RUNTIME_SOURCE_SHA256=' "node_repl runtime metadata is missing the source checksum"
+    (
+        cd "$resources_dir"
+        sha256sum -c node.sha256
+        sha256sum -c node_repl.sha256
+    )
+    file "$resources_dir/node_repl" | grep -q "ELF" || ci_fail "Product node_repl is not a Linux ELF binary"
+    require_file "$resources_dir/app.asar.unpacked/node_modules/better-sqlite3/build/Release/better_sqlite3.node"
+    require_file "$resources_dir/app.asar.unpacked/node_modules/node-pty/build/Release/pty.node"
     assert_file_contains "$extract_root/start.sh" "register_url_scheme_handlers" "Portable launcher is missing URL scheme registration"
     assert_file_contains "$extract_root/start.sh" "xdg-mime default" "Portable launcher is missing xdg-mime URL scheme registration"
+    assert_file_contains "$extract_root/start.sh" "PRODUCT_APP_ASAR" "Portable launcher is missing product app.asar mode"
 
-    main_entry_path="$(node -e 'const manifest=require(process.argv[1]); if (!manifest.main) process.exit(1); process.stdout.write(process.argv[2] + "/" + manifest.main);' "$extract_root/dist/package.json" "$extract_root/dist")"
-    require_file "$main_entry_path"
+    main_entry_path="$(
+        ELECTRON_RUN_AS_NODE=1 "$electron_bin" - "$resources_dir/app.asar" <<'NODE'
+const fs = require("node:fs");
+const path = require("node:path");
+const appAsar = process.argv[2];
+const manifestPath = path.join(appAsar, "package.json");
+const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+if (!manifest.main) process.exit(1);
+const mainEntry = path.join(appAsar, manifest.main);
+if (!fs.existsSync(mainEntry)) process.exit(2);
+process.stdout.write(mainEntry);
+NODE
+    )"
+    [ -n "$main_entry_path" ] || ci_fail "Unable to resolve product app main entry from app.asar"
 
     for size in 16 24 32 48 64 128 256 512; do
         require_file "$ARTIFACTS_DIR/icons/hicolor/${size}x${size}/apps/codex-desktop.png"
         require_file "$extract_root/icons/hicolor/${size}x${size}/apps/codex-desktop.png"
     done
 
-    node --check "$main_entry_path"
-
-    # Also syntax-check the hashed bundles that get patched by build.sh
-    for bundle in "$extract_root"/dist/.vite/build/main-*.js "$extract_root"/dist/.vite/build/deeplinks-*.js; do
-        if [ -f "$bundle" ]; then
-            node --check "$bundle"
-        fi
-    done
+    ELECTRON_RUN_AS_NODE=1 "$electron_bin" --check "$main_entry_path"
 
     mkdir -p "$WORK_DIR/home"
     launch_log="$WORK_DIR/portable-launch.log"
-    HOME="$WORK_DIR/home" timeout 25s xvfb-run -a "$extract_root/start.sh" >"$launch_log" 2>&1 || launch_rc=$?
+    env \
+        CODEX_BROWSER_USE_NODE_PATH=/usr/bin/node \
+        CODEX_ELECTRON_BUNDLED_PLUGINS_RESOURCES_PATH=/opt/codex-desktop/dist \
+        CODEX_ELECTRON_RESOURCES_PATH=/opt/codex-desktop/dist \
+        CODEX_NODE_REPL_PATH=/opt/codex-desktop/dist/node_repl \
+        NODE_REPL_NODE_PATH=/usr/bin/node \
+        HOME="$WORK_DIR/home" \
+        XDG_SESSION_TYPE=x11 \
+        WAYLAND_DISPLAY='' \
+        timeout 25s xvfb-run -a "$extract_root/start.sh" >"$launch_log" 2>&1 || launch_rc=$?
     if [ "$launch_rc" -ne 0 ] && [ "$launch_rc" -ne 124 ]; then
         cat "$launch_log"
         ci_fail "Portable launcher exited with status $launch_rc"
     fi
 
-    if grep -Eq 'Electron runtime not found|Build output not found|Codex CLI not found' "$launch_log"; then
+    if grep -Eq 'Electron runtime not found|Build output not found|Codex CLI not found|Product Electron binary not found|Desktop bootstrap failed' "$launch_log"; then
         cat "$launch_log"
         ci_fail "Portable launcher reported a fatal bootstrap error"
+    fi
+    if grep -Eq 'packaged[":= ]+false|react devtools extension loaded' "$launch_log"; then
+        cat "$launch_log"
+        ci_fail "Portable launcher used unpacked/dev Electron runtime"
+    fi
+    if ! grep -Eq 'packaged[":= ]+true' "$launch_log"; then
+        cat "$launch_log"
+        ci_fail "Portable launcher did not report packaged:true"
+    fi
+    if grep -Fq '/opt/codex-desktop/dist/node_repl' "$launch_log"; then
+        cat "$launch_log"
+        ci_fail "Portable launcher leaked stale inherited CODEX_NODE_REPL_PATH into Browser Use runtime"
+    fi
+    if ! grep -Fq "$resources_dir/node_repl" "$launch_log"; then
+        cat "$launch_log"
+        ci_fail "Portable launcher did not expose product node_repl to Browser Use runtime"
     fi
 
     if [ -n "$RELEASE_NOTES_PATH" ]; then

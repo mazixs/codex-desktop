@@ -15,9 +15,12 @@ WEBVIEW_SERVER_TEMPLATE="$SCRIPT_DIR/webview-server.js"
 DEFAULT_DMG_FILE="$PROJECT_ROOT/Codex.dmg"
 DMG_FILE="$DEFAULT_DMG_FILE"
 DMG_URL="${CODEX_DMG_URL:-https://persistent.oaistatic.com/codex-app-prod/Codex.dmg}"
-ELECTRON_VERSION="${ELECTRON_VERSION:-42.2.0}"
+ELECTRON_VERSION="${ELECTRON_VERSION:-42.1.0}"
 BUILD_ARCH="${BUILD_ARCH:-x64}"
 BUILD_PLATFORM="linux"
+NODE_REPL_RUNTIME_VERSION="${NODE_REPL_RUNTIME_VERSION:-26.426.12240}"
+NODE_REPL_RUNTIME_SHA256="${NODE_REPL_RUNTIME_SHA256:-ac14a0d1483a2b33622c96bb12ecdab9fd8b31fb73a63ec6d2ba51dfeebfa27a}"
+NODE_REPL_RUNTIME_URL="${NODE_REPL_RUNTIME_URL:-https://persistent.oaistatic.com/codex-primary-runtime/${NODE_REPL_RUNTIME_VERSION}/codex-primary-runtime-linux-x64-${NODE_REPL_RUNTIME_VERSION}.tar.xz}"
 APP_DESKTOP_ID="codex-desktop"
 APP_DISPLAY_NAME="Codex Desktop"
 APP_STARTUP_WM_CLASS="$APP_DESKTOP_ID"
@@ -28,6 +31,7 @@ INSTALL_DESKTOP_ENTRY=0
 CLEAN_OUTPUTS=0
 SKIP_DOWNLOAD=0
 SKIP_EXTRACT=0
+FRESH_EXTRACT=0
 RELEASE_TAG="${RELEASE_TAG:-}"
 
 RED=$'\033[0;31m'
@@ -57,6 +61,7 @@ Options:
   --install-desktop-entry  Install/refresh the local .desktop launcher
   --skip-download          Fail instead of downloading Codex.dmg when it is absent
   --skip-extract           Fail instead of extracting app.asar when sources are absent
+  --fresh-extract          Remove cached extracted upstream sources before extracting
   --dmg PATH               Use a custom Codex.dmg path
   --help                   Show this help
 EOF
@@ -79,6 +84,9 @@ parse_args() {
                 ;;
             --skip-extract)
                 SKIP_EXTRACT=1
+                ;;
+            --fresh-extract)
+                FRESH_EXTRACT=1
                 ;;
             --dmg)
                 shift
@@ -186,6 +194,11 @@ verify_dmg() {
 }
 
 extract_app() {
+    if [ "$FRESH_EXTRACT" -eq 1 ] && [ -d "$EXTRACTED_DIR" ]; then
+        log "Removing cached extracted application sources for fresh extraction..."
+        rm -rf "$EXTRACTED_DIR"
+    fi
+
     if [ -d "$APP_UNPACKED" ]; then
         log "Using extracted application sources from $APP_UNPACKED"
         return 0
@@ -842,25 +855,47 @@ NODE
         if head -c 4 "$upstream_node_repl" | grep -q $'\x7fELF'; then
             cp "$upstream_node_repl" "$dist_node_repl"
             chmod +x "$dist_node_repl"
-        elif [ -x "$cache_dir/node_repl" ]; then
-            cp "$cache_dir/node_repl" "$dist_node_repl"
-            chmod +x "$dist_node_repl"
-        else
+        fi
+
+        if [ ! -x "$dist_node_repl" ] && [ -x "$cache_dir/node_repl" ]; then
+            local cached_node_repl_sha
+            cached_node_repl_sha="$(sha256sum "$cache_dir/node_repl" | awk '{print $1}')"
+            if [ "$cached_node_repl_sha" = "$NODE_REPL_RUNTIME_SHA256" ]; then
+                cp "$cache_dir/node_repl" "$dist_node_repl"
+                chmod +x "$dist_node_repl"
+            else
+                warn "Cached node_repl checksum mismatch; redownloading primary runtime"
+                rm -f "$cache_dir/node_repl"
+            fi
+        fi
+
+        if [ ! -x "$dist_node_repl" ]; then
             log "Downloading Linux node_repl from OpenAI primary runtime..."
             mkdir -p "$cache_dir"
-            local url="https://persistent.oaistatic.com/codex-primary-runtime/26.426.12240/codex-primary-runtime-linux-x64-26.426.12240.tar.xz"
             local tmpdir
             tmpdir="$(mktemp -d)"
-            if curl -L --fail -o "$tmpdir/runtime.tar.xz" "$url"; then
+            if curl -L --fail -o "$tmpdir/runtime.tar.xz" "$NODE_REPL_RUNTIME_URL"; then
                 tar -xJf "$tmpdir/runtime.tar.xz" -C "$tmpdir" codex-primary-runtime/dependencies/bin/node_repl
-                cp "$tmpdir/codex-primary-runtime/dependencies/bin/node_repl" "$cache_dir/node_repl"
+                local downloaded_node_repl="$tmpdir/codex-primary-runtime/dependencies/bin/node_repl"
+                local downloaded_node_repl_sha
+                downloaded_node_repl_sha="$(sha256sum "$downloaded_node_repl" | awk '{print $1}')"
+                if [ "$downloaded_node_repl_sha" != "$NODE_REPL_RUNTIME_SHA256" ]; then
+                    rm -rf "$tmpdir"
+                    err "Downloaded node_repl checksum mismatch: expected $NODE_REPL_RUNTIME_SHA256, got $downloaded_node_repl_sha"
+                    exit 1
+                fi
+                cp "$downloaded_node_repl" "$cache_dir/node_repl"
                 chmod +x "$cache_dir/node_repl"
                 cp "$cache_dir/node_repl" "$dist_node_repl"
                 rm -rf "$tmpdir"
                 log "Downloaded node_repl to dist/"
             else
-                warn "Failed to download node_repl; Browser Use may not function"
                 rm -rf "$tmpdir"
+                if [ "$PACKAGE_RELEASE" -eq 1 ]; then
+                    err "Failed to download required node_repl runtime for release packaging"
+                    exit 1
+                fi
+                warn "Failed to download node_repl; Browser Use may not function"
             fi
         fi
     fi
@@ -1358,57 +1393,6 @@ PY
         '...process.platform===`win32`?{autoHideMenuBar:!0}:{}' \
         '...process.platform===`win32`||process.platform===`linux`?{autoHideMenuBar:!0}:{}' \
         '...process.platform===`win32`?{autoHideMenuBar:!0}:{}'
-
-    # Remove the native application menu entirely on Linux so it never appears.
-    # Upstream minified names drift every build, so we use regex matching.
-    # shellcheck disable=SC2016
-    python3 - "$main_bundle" <<'PY'
-import re, sys
-
-path = sys.argv[1]
-content = open(path, "r").read()
-
-# Replace all win32-only removeMenu() calls with win32||linux
-content = re.sub(
-    r'process\.platform===`win32`&&([A-Za-z_$][\w$]*)\.removeMenu\(\)',
-    r'(process.platform===`win32`||process.platform===`linux`)&&\1.removeMenu()',
-    content
-)
-
-open(path, "w").write(content)
-PY
-
-    # Upstream refreshes the global application menu after startup, which reattaches
-    # the native menubar on Linux even if the window menu was removed earlier.
-    # Force a null application menu on Linux while preserving default behavior elsewhere.
-    # Upstream minified names drift every build, so we use regex matching instead
-    # of brittle exact string replacements.
-    # shellcheck disable=SC2016
-    python3 - "$main_bundle" <<'PY'
-import re, sys
-
-path = sys.argv[1]
-content = open(path, "r").read()
-
-if 'process.platform===`linux`?(n.Menu.setApplicationMenu(null)' in content:
-    sys.exit(0)
-
-match = re.search(r'([A-Za-z_$][\w$]*)\.Menu\.setApplicationMenu\(([A-Za-z_$][\w$]*)\),([A-Za-z_$][\w$]*)\(([^)]+)\)', content)
-if not match:
-    print("WARN: Could not find setApplicationMenu call -- skipping app menu patch", file=sys.stderr)
-    sys.exit(0)
-
-ns, menu_var, func_name, func_arg = match.groups()
-needle = f"{ns}.Menu.setApplicationMenu({menu_var}),{func_name}({func_arg})"
-replacement = f"process.platform===`linux`?({ns}.Menu.setApplicationMenu(null),{func_name}({func_arg})):({ns}.Menu.setApplicationMenu({menu_var}),{func_name}({func_arg}))"
-
-if needle not in content:
-    print("WARN: Could not find setApplicationMenu needle -- skipping app menu patch", file=sys.stderr)
-    sys.exit(0)
-
-content = content.replace(needle, replacement)
-open(path, "w").write(content)
-PY
 
     # =====================================================================
     # --- Add Linux file manager support ---
@@ -2174,10 +2158,10 @@ if os.path.exists(main_path):
             f"if({i_var}.app.isPackaged)return {t_var};"
             f"let {n_var}={o_var}.join({e_var},`assets`,`skills`);"
             f"if((0,{c_var}.existsSync)({n_var}))return {n_var};"
-            f"let r={o_var}.join({e_var},`..`,`skills`);"
-            f"if((0,{c_var}.existsSync)(r))return r;"
-            f"let a={o_var}.join({e_var},`..`,`assets`,`skills`);"
-            f"return(0,{c_var}.existsSync)(a)?a:null}}"
+            f"let codexLinuxSkillsRoot={o_var}.join({e_var},`..`,`skills`);"
+            f"if((0,{c_var}.existsSync)(codexLinuxSkillsRoot))return codexLinuxSkillsRoot;"
+            f"let codexLinuxAssetsSkillsRoot={o_var}.join({e_var},`..`,`assets`,`skills`);"
+            f"return(0,{c_var}.existsSync)(codexLinuxAssetsSkillsRoot)?codexLinuxAssetsSkillsRoot:null}}"
         )
         content = content.replace(match.group(0), replacement)
         open(main_path, "w", encoding="utf-8").write(content)
@@ -2234,7 +2218,7 @@ if os.path.exists(skills_path) and skills_path != main_path:
             "let i=n.isAbsolute(e)?e:n.resolve(t,e),a=skillIconMimeType(n.extname(i).toLowerCase());if(!a)return i;"
             "try{let e=await r.readFile(i,r);return `data:${a};base64,${Buffer.from(e).toString('base64')}`}catch{return i}}"
             "function mergeRecommendedSkillLists(e,t){let n=new Map;for(let r of[...e,...t])n.has(r.id)||n.set(r.id,r);return Array.from(n.values()).sort((e,t)=>e.name.localeCompare(t.name))}"
-            "function logBundledSkillOverrides(e,t){let n=e.filter(e=>e.skillSource==='bundled-override').map(e=>e.id);return n.length>0&&NL().info('Using bundled skill overrides',{safe:{skillIds:n,baseSource:t},sensitive:{}}),e}"
+            "function logBundledSkillOverrides(e,t){return e}"
         )
         
         replacement_enum = (
@@ -2408,7 +2392,44 @@ if os.path.exists(comment_path):
 
 PY
 
+    local bootstrap_bundle="$BUILD_DIR/.vite/build/bootstrap.js"
+    if [ -f "$bootstrap_bundle" ]; then
+        python3 - "$bootstrap_bundle" <<'PY'
+import re
+import sys
+
+path = sys.argv[1]
+with open(path, "r", encoding="utf-8") as handle:
+    content = handle.read()
+
+pattern = re.compile(
+    r'catch\(([A-Za-z_$][\w$]*)\)\{'
+    r'for\(let \1 of ([A-Za-z_$][\w$]*)\.BrowserWindow\.getAllWindows\(\)\)\1\.isDestroyed\(\)\|\|\1\.destroy\(\);'
+    r'([A-Za-z_$][\w$]*\.Ir\(\)\.error\(`Desktop bootstrap failed to start the main app`,)'
+    r'\{safe:\{phase:`bootstrap-import-main`\}\}'
+)
+
+def replace(match):
+    err_var = match.group(1)
+    return (
+        f"catch({err_var}){{"
+        f"for(let {err_var} of {match.group(2)}.BrowserWindow.getAllWindows()){err_var}.isDestroyed()||{err_var}.destroy();"
+        f"{match.group(3)}{{safe:{{phase:`bootstrap-import-main`}},sensitive:{{error:{err_var}?.stack??String({err_var})}}}}"
+    )
+
+content, count = pattern.subn(replace, content, count=1)
+if count == 0 and "Desktop bootstrap failed to start the main app" in content and "bootstrap-import-main" in content:
+    print("WARN: Could not patch bootstrap failure diagnostics", file=sys.stderr)
+
+with open(path, "w", encoding="utf-8") as handle:
+    handle.write(content)
+PY
+    fi
+
     # Verify patched bundles parse correctly
+    if [ -f "$bootstrap_bundle" ]; then
+        node --check "$bootstrap_bundle"
+    fi
     node --check "$main_bundle"
     if [ -f "$comment_preload" ]; then
         node --check "$comment_preload"
@@ -2519,13 +2540,177 @@ SOURCE_DMG=$DMG_FILE
 EOF
 }
 
+ensure_portable_electron_runtime() {
+    local package_dir="$1"
+    local local_electron_dir="$SCRIPT_DIR/node_modules/electron"
+    local package_electron_dir="$package_dir/node_modules/electron"
+    local package_electron_dist="$package_electron_dir/dist"
+    local local_electron_version=""
+
+    (
+        cd "$package_dir"
+        CI=true pnpm install --prod --frozen-lockfile --loglevel=error
+    )
+
+    if [ -f "$local_electron_dir/package.json" ]; then
+        local_electron_version="$(node -e 'console.log(require(process.argv[1]).version)' "$local_electron_dir/package.json" 2>/dev/null || true)"
+    fi
+
+    # Keep the portable bundle self-contained, but only copy the local Electron
+    # payload when it matches the pinned runtime version.
+    if [ -d "$local_electron_dir/dist" ] && [ "$local_electron_version" = "$ELECTRON_VERSION" ]; then
+        mkdir -p "$package_electron_dir"
+        rm -rf "$package_electron_dist"
+        cp -a "$local_electron_dir/dist" "$package_electron_dir/"
+        if [ -f "$local_electron_dir/path.txt" ]; then
+            cp "$local_electron_dir/path.txt" "$package_electron_dir/"
+        fi
+    fi
+
+    if [ ! -x "$package_electron_dist/electron" ] || [ ! -f "$package_electron_dir/path.txt" ]; then
+        log "Installing Electron runtime into portable artifact..."
+        rm -rf "$package_electron_dist" "$package_electron_dir/path.txt"
+        (
+            cd "$package_electron_dir"
+            ELECTRON_INSTALL_PLATFORM="$BUILD_PLATFORM" ELECTRON_INSTALL_ARCH="$BUILD_ARCH" node install.js
+        )
+    fi
+
+    if [ ! -x "$package_electron_dist/electron" ]; then
+        local electron_cache_zip
+        electron_cache_zip="$(
+            find "${electron_config_cache:-$HOME/.cache/electron}" \
+                -name "electron-v$ELECTRON_VERSION-$BUILD_PLATFORM-$BUILD_ARCH.zip" \
+                -type f \
+                -print 2>/dev/null | sort | head -n 1
+        )"
+        if [ -n "$electron_cache_zip" ] && command -v unzip >/dev/null 2>&1; then
+            log "Extracting Electron runtime from cache..."
+            rm -rf "$package_electron_dist"
+            mkdir -p "$package_electron_dist"
+            unzip -q "$electron_cache_zip" -d "$package_electron_dist"
+            printf 'electron' > "$package_electron_dir/path.txt"
+            chmod +x "$package_electron_dist/electron" || true
+        fi
+    fi
+
+    if [ ! -x "$package_electron_dist/electron" ]; then
+        err "Portable Electron runtime is missing: $package_electron_dist/electron"
+        exit 1
+    fi
+    if [ "$(cat "$package_electron_dir/path.txt" 2>/dev/null || true)" != "electron" ]; then
+        err "Portable Electron runtime path.txt is invalid"
+        exit 1
+    fi
+}
+
+prepare_product_electron_binary() {
+    local package_dir="$1"
+    local electron_dist="$package_dir/node_modules/electron/dist"
+    local electron_bin="$electron_dist/electron"
+    local product_bin="$electron_dist/$APP_DESKTOP_ID"
+
+    if [ -x "$electron_bin" ] && [ ! -e "$product_bin" ]; then
+        mv "$electron_bin" "$product_bin"
+    fi
+
+    if [ ! -x "$product_bin" ]; then
+        err "Product Electron binary is missing: $product_bin"
+        exit 1
+    fi
+
+    rm -f "$electron_bin"
+    ln -s "$APP_DESKTOP_ID" "$electron_bin"
+    chmod +x "$product_bin"
+}
+
+stage_product_resources() {
+    local package_dir="$1"
+    local resources_dir="$package_dir/node_modules/electron/dist/resources"
+    local node_source="$BUILD_DIR/node"
+    local node_repl_packaged_sha=""
+    local node_packaged_sha=""
+
+    mkdir -p "$resources_dir"
+    rm -rf "$resources_dir/plugins"
+
+    if [ ! -d "$BUILD_DIR/plugins/openai-bundled" ]; then
+        err "Bundled plugin resources are missing from $BUILD_DIR/plugins/openai-bundled"
+        exit 1
+    fi
+    cp -a "$BUILD_DIR/plugins" "$resources_dir/"
+
+    if [ ! -x "$BUILD_DIR/node_repl" ]; then
+        err "Linux node_repl is missing from $BUILD_DIR/node_repl"
+        exit 1
+    fi
+    cp "$BUILD_DIR/node_repl" "$resources_dir/node_repl"
+    chmod +x "$resources_dir/node_repl"
+    node_repl_packaged_sha="$(sha256sum "$resources_dir/node_repl" | awk '{print $1}')"
+    printf '%s  node_repl\n' "$node_repl_packaged_sha" > "$resources_dir/node_repl.sha256"
+    cat > "$resources_dir/node_repl.runtime.env" <<EOF
+NODE_REPL_RUNTIME_VERSION=$NODE_REPL_RUNTIME_VERSION
+NODE_REPL_RUNTIME_URL=$NODE_REPL_RUNTIME_URL
+NODE_REPL_RUNTIME_SOURCE_SHA256=$NODE_REPL_RUNTIME_SHA256
+NODE_REPL_PACKAGED_SHA256=$node_repl_packaged_sha
+EOF
+
+    if [ ! -e "$node_source" ]; then
+        err "Linux node runtime fallback is missing from $node_source"
+        exit 1
+    fi
+    cp -L "$node_source" "$resources_dir/node"
+    chmod +x "$resources_dir/node"
+    node_packaged_sha="$(sha256sum "$resources_dir/node" | awk '{print $1}')"
+    printf '%s  node\n' "$node_packaged_sha" > "$resources_dir/node.sha256"
+}
+
+pack_product_app_asar() {
+    local package_dir="$1"
+    local resources_dir="$package_dir/node_modules/electron/dist/resources"
+    local app_stage=""
+
+    app_stage="$(mktemp -d "${TMPDIR:-/tmp}/codex-app-asar.XXXXXX")"
+    cp -a "$BUILD_DIR/." "$app_stage/"
+    rm -rf \
+        "$app_stage/plugins" \
+        "$app_stage/node" \
+        "$app_stage/node_repl" \
+        "$app_stage/webview-server.js"
+
+    rm -rf "$resources_dir/app.asar" "$resources_dir/app.asar.unpacked"
+    "$SCRIPT_DIR/node_modules/.bin/asar" pack \
+        --unpack "**/*.node" \
+        "$app_stage" \
+        "$resources_dir/app.asar"
+    rm -rf "$app_stage"
+
+    if [ ! -f "$resources_dir/app.asar" ]; then
+        err "Product app.asar was not created"
+        exit 1
+    fi
+    if [ ! -d "$resources_dir/app.asar.unpacked" ]; then
+        err "Product app.asar.unpacked was not created; native modules may be trapped inside app.asar"
+        exit 1
+    fi
+}
+
+run_release_patch_checks() {
+    if [ "$PACKAGE_RELEASE" -eq 0 ]; then
+        return 0
+    fi
+
+    log "Running release patch regression checks..."
+    "$PROJECT_ROOT/tests/patch-regression.sh"
+    "$PROJECT_ROOT/tests/build-smoke.sh"
+}
+
 package_release() {
     local upstream_version
     local release_version
     local package_name
     local package_dir
     local archive_path
-    local local_electron_dir="$SCRIPT_DIR/node_modules/electron"
 
     upstream_version="$(node -e 'console.log(require(process.argv[1]).version)' "$BUILD_DIR/package.json")"
     release_version="$(resolve_release_version "$upstream_version")"
@@ -2537,65 +2722,20 @@ package_release() {
     rm -rf "$package_dir" "$archive_path" "$archive_path.sha256"
     mkdir -p "$package_dir"
 
-    cp -a "$BUILD_DIR" "$package_dir/dist"
     cp "$SCRIPT_DIR/start.sh" "$package_dir/"
     cp "$SCRIPT_DIR/package.json" "$package_dir/"
     cp "$SCRIPT_DIR/pnpm-lock.yaml" "$package_dir/"
+    cp "$SCRIPT_DIR/pnpm-workspace.yaml" "$package_dir/"
     cp "$PROJECT_ROOT/LICENSE" "$package_dir/"
     cp "$PROJECT_ROOT/README.md" "$package_dir/"
     if [ -f "$SCRIPT_DIR/.npmrc" ]; then
         cp "$SCRIPT_DIR/.npmrc" "$package_dir/"
     fi
 
-    (
-        cd "$package_dir"
-        CI=true npm install --production --no-audit --no-fund --loglevel=error
-    )
-
-    # npm install may omit the downloaded Electron runtime payload even when
-    # the electron package itself is present. Ensure the portable bundle
-    # remains self-contained instead of downloading Electron at launch time.
-    if [ -d "$local_electron_dir/dist" ]; then
-        mkdir -p "$package_dir/node_modules/electron"
-        rm -rf "$package_dir/node_modules/electron/dist"
-        cp -a "$local_electron_dir/dist" "$package_dir/node_modules/electron/"
-        if [ -f "$local_electron_dir/path.txt" ]; then
-            cp "$local_electron_dir/path.txt" "$package_dir/node_modules/electron/"
-        fi
-    fi
-    if [ ! -x "$package_dir/node_modules/electron/dist/electron" ] || [ ! -f "$package_dir/node_modules/electron/path.txt" ]; then
-        log "Installing Electron runtime into portable artifact..."
-        rm -rf "$package_dir/node_modules/electron/dist" "$package_dir/node_modules/electron/path.txt"
-        (
-            cd "$package_dir/node_modules/electron"
-            ELECTRON_INSTALL_PLATFORM="$BUILD_PLATFORM" ELECTRON_INSTALL_ARCH="$BUILD_ARCH" node install.js
-        )
-    fi
-    if [ ! -x "$package_dir/node_modules/electron/dist/electron" ]; then
-        local electron_cache_zip
-        electron_cache_zip="$(
-            find "${electron_config_cache:-$HOME/.cache/electron}" \
-                -name "electron-v$ELECTRON_VERSION-$BUILD_PLATFORM-$BUILD_ARCH.zip" \
-                -type f \
-                -print 2>/dev/null | sort | head -n 1
-        )"
-        if [ -n "$electron_cache_zip" ] && command -v unzip >/dev/null 2>&1; then
-            log "Extracting Electron runtime from cache..."
-            rm -rf "$package_dir/node_modules/electron/dist"
-            mkdir -p "$package_dir/node_modules/electron/dist"
-            unzip -q "$electron_cache_zip" -d "$package_dir/node_modules/electron/dist"
-            printf 'electron' > "$package_dir/node_modules/electron/path.txt"
-            chmod +x "$package_dir/node_modules/electron/dist/electron" || true
-        fi
-    fi
-    if [ ! -x "$package_dir/node_modules/electron/dist/electron" ]; then
-        err "Portable Electron runtime is missing: $package_dir/node_modules/electron/dist/electron"
-        exit 1
-    fi
-    if [ "$(cat "$package_dir/node_modules/electron/path.txt" 2>/dev/null || true)" != "electron" ]; then
-        err "Portable Electron runtime path.txt is invalid"
-        exit 1
-    fi
+    ensure_portable_electron_runtime "$package_dir"
+    prepare_product_electron_binary "$package_dir"
+    stage_product_resources "$package_dir"
+    pack_product_app_asar "$package_dir"
 
     if [ -f "$SCRIPT_DIR/codex-icon.png" ]; then
         cp "$SCRIPT_DIR/codex-icon.png" "$package_dir/"
@@ -2685,6 +2825,7 @@ main() {
     apply_linux_desktop_identity
     rebuild_native_modules
     patch_main_js
+    run_release_patch_checks
     extract_icon
 
     mkdir -p "$ARTIFACTS_DIR"

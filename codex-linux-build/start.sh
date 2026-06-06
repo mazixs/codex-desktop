@@ -3,6 +3,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DIST_DIR="$SCRIPT_DIR/dist"
+ELECTRON_DIST_DIR="$SCRIPT_DIR/node_modules/electron/dist"
+PRODUCT_RESOURCES_DIR="$ELECTRON_DIST_DIR/resources"
+PRODUCT_APP_ASAR="$PRODUCT_RESOURCES_DIR/app.asar"
+PRODUCT_ELECTRON_BIN="$ELECTRON_DIST_DIR/codex-desktop"
 WEBVIEW_PORT="${CODEX_WEBVIEW_PORT:-5175}"
 APP_DESKTOP_ID="codex-desktop"
 
@@ -17,10 +21,15 @@ err() {
 find_electron_bin() {
     local candidate=""
     local electron_cli="$SCRIPT_DIR/node_modules/electron/cli.js"
-    local electron_dist="$SCRIPT_DIR/node_modules/electron/dist/electron"
+    local electron_dist="$ELECTRON_DIST_DIR/electron"
 
     if [ -n "${ELECTRON_BIN:-}" ] && [ -x "${ELECTRON_BIN}" ]; then
         printf '%s\n' "${ELECTRON_BIN}"
+        return 0
+    fi
+
+    if [ -f "$PRODUCT_APP_ASAR" ] && [ -x "$PRODUCT_ELECTRON_BIN" ]; then
+        printf '%s\n' "$PRODUCT_ELECTRON_BIN"
         return 0
     fi
 
@@ -50,8 +59,19 @@ find_electron_bin() {
 
 find_node_bin() {
     local candidate=""
+    local electron_dist="$ELECTRON_DIST_DIR/electron"
 
-    candidate="$(find "$SCRIPT_DIR/node_modules" -path '*/electron/dist/electron' -type f 2>/dev/null | head -n 1 || true)"
+    if [ -x "$PRODUCT_ELECTRON_BIN" ]; then
+        printf '%s\n' "$PRODUCT_ELECTRON_BIN"
+        return 0
+    fi
+
+    if [ -x "$electron_dist" ]; then
+        printf '%s\n' "$electron_dist"
+        return 0
+    fi
+
+    candidate="$(find "$SCRIPT_DIR/node_modules" \( -path '*/electron/dist/codex-desktop' -o -path '*/electron/dist/electron' \) \( -type f -o -type l \) 2>/dev/null | head -n 1 || true)"
     if [ -n "$candidate" ] && [ -x "$candidate" ]; then
         printf '%s\n' "$candidate"
         return 0
@@ -68,9 +88,10 @@ find_node_bin() {
 ensure_electron_binary() {
     local electron_dir="$SCRIPT_DIR/node_modules/electron"
     local electron_dist="$electron_dir/dist/electron"
+    local product_dist="$electron_dir/dist/codex-desktop"
     local path_txt="$electron_dir/path.txt"
 
-    if [ -d "$electron_dir" ] && { [ ! -x "$electron_dist" ] || [ ! -f "$path_txt" ]; }; then
+    if [ -d "$electron_dir" ] && { { [ ! -x "$electron_dist" ] && [ ! -x "$product_dist" ]; } || [ ! -f "$path_txt" ]; }; then
         log "Electron binary is missing or incomplete. Triggering robust extraction..."
         (
             cd "$SCRIPT_DIR"
@@ -193,17 +214,29 @@ resolve_codex_cli() {
     return 1
 }
 
-if [ ! -d "$DIST_DIR" ]; then
-    err "Build output not found at $DIST_DIR. Run ./build.sh first."
-    exit 1
+PRODUCT_MODE=0
+if [ -f "$PRODUCT_APP_ASAR" ]; then
+    PRODUCT_MODE=1
 fi
 
-if [ ! -f "$DIST_DIR/webview-server.js" ]; then
-    err "Missing $DIST_DIR/webview-server.js. Re-run ./build.sh."
-    exit 1
+if [ "$PRODUCT_MODE" -eq 0 ]; then
+    if [ ! -d "$DIST_DIR" ]; then
+        err "Build output not found at $DIST_DIR. Run ./build.sh first."
+        exit 1
+    fi
+
+    if [ ! -f "$DIST_DIR/webview-server.js" ]; then
+        err "Missing $DIST_DIR/webview-server.js. Re-run ./build.sh."
+        exit 1
+    fi
 fi
 
 ensure_electron_binary
+
+if [ "$PRODUCT_MODE" -eq 1 ] && [ ! -x "$PRODUCT_ELECTRON_BIN" ]; then
+    err "Product Electron binary not found at $PRODUCT_ELECTRON_BIN. Re-run ./build.sh --package."
+    exit 1
+fi
 
 ELECTRON_BIN_RESOLVED="$(find_electron_bin || true)"
 if [ -z "$ELECTRON_BIN_RESOLVED" ]; then
@@ -217,19 +250,35 @@ if [ -z "$NODE_BIN_RESOLVED" ]; then
     exit 1
 fi
 
+resolve_current_app_version() {
+    local node_path="$1"
+    local metadata_path="$SCRIPT_DIR/build-metadata.env"
+    local version=""
+
+    if [ "$PRODUCT_MODE" -eq 1 ] && [ -f "$metadata_path" ]; then
+        version="$(sed -n 's/^UPSTREAM_VERSION=//p' "$metadata_path" | head -n 1)"
+        if [ -n "$version" ]; then
+            printf '%s\n' "$version"
+            return 0
+        fi
+    fi
+
+    if [ -f "$DIST_DIR/package.json" ] && [ -x "$node_path" ]; then
+        if [[ "$node_path" == *"/electron/dist/"* ]]; then
+            ELECTRON_RUN_AS_NODE=1 "$node_path" -e 'console.log(require(process.argv[1]).version)' "$DIST_DIR/package.json" 2>/dev/null || true
+        else
+            "$node_path" -e 'console.log(require(process.argv[1]).version)' "$DIST_DIR/package.json" 2>/dev/null || true
+        fi
+    fi
+}
+
 clean_stale_plugins_cache() {
     local version_file="${HOME:-}/.codex/.last-run-version"
     local current_version=""
     local node_path="$1"
-    
-    if [ -f "$DIST_DIR/package.json" ] && [ -x "$node_path" ]; then
-        if [[ "$node_path" == *"/electron/dist/electron" ]]; then
-            current_version="$(ELECTRON_RUN_AS_NODE=1 "$node_path" -e 'console.log(require(process.argv[1]).version)' "$DIST_DIR/package.json" 2>/dev/null || true)"
-        else
-            current_version="$("$node_path" -e 'console.log(require(process.argv[1]).version)' "$DIST_DIR/package.json" 2>/dev/null || true)"
-        fi
-    fi
-    
+
+    current_version="$(resolve_current_app_version "$node_path")"
+
     if [ -n "$current_version" ]; then
         local last_version=""
         [ -f "$version_file" ] && last_version="$(cat "$version_file" 2>/dev/null || true)"
@@ -254,21 +303,28 @@ else
     exit 1
 fi
 
-free_webview_port
-if [[ "$NODE_BIN_RESOLVED" == *"/electron/dist/electron" ]]; then
-    ELECTRON_RUN_AS_NODE=1 "$NODE_BIN_RESOLVED" "$DIST_DIR/webview-server.js" &
-else
-    "$NODE_BIN_RESOLVED" "$DIST_DIR/webview-server.js" &
+WEBVIEW_PID=""
+if [ "$PRODUCT_MODE" -eq 0 ]; then
+    free_webview_port
+    if [[ "$NODE_BIN_RESOLVED" == *"/electron/dist/"* ]]; then
+        ELECTRON_RUN_AS_NODE=1 "$NODE_BIN_RESOLVED" "$DIST_DIR/webview-server.js" &
+    else
+        "$NODE_BIN_RESOLVED" "$DIST_DIR/webview-server.js" &
+    fi
+    WEBVIEW_PID=$!
 fi
-WEBVIEW_PID=$!
 
 cleanup() {
-    kill "$WEBVIEW_PID" >/dev/null 2>&1 || true
-    wait "$WEBVIEW_PID" >/dev/null 2>&1 || true
+    if [ -n "$WEBVIEW_PID" ]; then
+        kill "$WEBVIEW_PID" >/dev/null 2>&1 || true
+        wait "$WEBVIEW_PID" >/dev/null 2>&1 || true
+    fi
 }
 trap cleanup EXIT
 
-sleep 0.3
+if [ "$PRODUCT_MODE" -eq 0 ]; then
+    sleep 0.3
+fi
 
 has_electron_flag() {
     local flag_name="$1"
@@ -293,43 +349,76 @@ resolve_ozone_platform_args() {
 }
 
 resolve_browser_use_runtime_env() {
-    if [ -z "${CODEX_ELECTRON_RESOURCES_PATH:-}" ]; then
-        export CODEX_ELECTRON_RESOURCES_PATH="$SCRIPT_DIR/dist"
+    local runtime_resources_dir="$DIST_DIR"
+    local runtime_node_path="$SCRIPT_DIR/dist/node"
+    local runtime_node_repl_path="$SCRIPT_DIR/dist/node_repl"
+    local respect_runtime_env="${CODEX_DESKTOP_RESPECT_RUNTIME_ENV:-0}"
+
+    if [ "$PRODUCT_MODE" -eq 1 ]; then
+        runtime_resources_dir="$PRODUCT_RESOURCES_DIR"
+        runtime_node_path="$PRODUCT_RESOURCES_DIR/node"
+        runtime_node_repl_path="$PRODUCT_RESOURCES_DIR/node_repl"
     fi
-    if [ -z "${CODEX_ELECTRON_BUNDLED_PLUGINS_RESOURCES_PATH:-}" ]; then
+
+    if [ "$respect_runtime_env" != "1" ]; then
+        export CODEX_ELECTRON_RESOURCES_PATH="$runtime_resources_dir"
         export CODEX_ELECTRON_BUNDLED_PLUGINS_RESOURCES_PATH="${CODEX_ELECTRON_RESOURCES_PATH}"
-    fi
-    if [ -z "${CODEX_BROWSER_USE_NODE_PATH:-}" ]; then
-        if [ -x "$SCRIPT_DIR/dist/node" ]; then
-            export CODEX_BROWSER_USE_NODE_PATH="$SCRIPT_DIR/dist/node"
+        if [ -x "$runtime_node_path" ]; then
+            export CODEX_BROWSER_USE_NODE_PATH="$runtime_node_path"
         elif command -v node >/dev/null 2>&1; then
             CODEX_BROWSER_USE_NODE_PATH="$(command -v node)"
             export CODEX_BROWSER_USE_NODE_PATH
         fi
-    fi
-    if [ -n "${CODEX_BROWSER_USE_NODE_PATH:-}" ] && [ -z "${NODE_REPL_NODE_PATH:-}" ]; then
-        export NODE_REPL_NODE_PATH="$CODEX_BROWSER_USE_NODE_PATH"
-    fi
-    if [ -z "${CODEX_NODE_REPL_PATH:-}" ]; then
-        if [ -x "$SCRIPT_DIR/dist/node_repl" ]; then
-            export CODEX_NODE_REPL_PATH="$SCRIPT_DIR/dist/node_repl"
+        if [ -n "${CODEX_BROWSER_USE_NODE_PATH:-}" ]; then
+            export NODE_REPL_NODE_PATH="$CODEX_BROWSER_USE_NODE_PATH"
+        fi
+        if [ -x "$runtime_node_repl_path" ]; then
+            export CODEX_NODE_REPL_PATH="$runtime_node_repl_path"
         elif command -v node_repl >/dev/null 2>&1; then
             CODEX_NODE_REPL_PATH="$(command -v node_repl)"
             export CODEX_NODE_REPL_PATH
         fi
+    else
+        if [ -z "${CODEX_ELECTRON_RESOURCES_PATH:-}" ]; then
+            export CODEX_ELECTRON_RESOURCES_PATH="$runtime_resources_dir"
+        fi
+        if [ -z "${CODEX_ELECTRON_BUNDLED_PLUGINS_RESOURCES_PATH:-}" ]; then
+            export CODEX_ELECTRON_BUNDLED_PLUGINS_RESOURCES_PATH="${CODEX_ELECTRON_RESOURCES_PATH}"
+        fi
+        if [ -z "${CODEX_BROWSER_USE_NODE_PATH:-}" ]; then
+            if [ -x "$runtime_node_path" ]; then
+                export CODEX_BROWSER_USE_NODE_PATH="$runtime_node_path"
+            elif command -v node >/dev/null 2>&1; then
+                CODEX_BROWSER_USE_NODE_PATH="$(command -v node)"
+                export CODEX_BROWSER_USE_NODE_PATH
+            fi
+        fi
+        if [ -n "${CODEX_BROWSER_USE_NODE_PATH:-}" ] && [ -z "${NODE_REPL_NODE_PATH:-}" ]; then
+            export NODE_REPL_NODE_PATH="$CODEX_BROWSER_USE_NODE_PATH"
+        fi
+        if [ -z "${CODEX_NODE_REPL_PATH:-}" ]; then
+            if [ -x "$runtime_node_repl_path" ]; then
+                export CODEX_NODE_REPL_PATH="$runtime_node_repl_path"
+            elif command -v node_repl >/dev/null 2>&1; then
+                CODEX_NODE_REPL_PATH="$(command -v node_repl)"
+                export CODEX_NODE_REPL_PATH
+            fi
+        fi
     fi
     # Ensure node_repl is discoverable via PATH for Codex CLI MCP server lookup
-    if [ -x "$SCRIPT_DIR/dist/node_repl" ]; then
+    if [ -x "$runtime_node_repl_path" ]; then
+        local runtime_bin_dir
+        runtime_bin_dir="$(dirname "$runtime_node_repl_path")"
         case ":${PATH}:" in
-            *":$SCRIPT_DIR/dist:") ;;
-            *) export PATH="$SCRIPT_DIR/dist:$PATH" ;;
+            *":$runtime_bin_dir:") ;;
+            *) export PATH="$runtime_bin_dir:$PATH" ;;
         esac
     fi
 
     # Auto-register node_repl MCP server if codex CLI is available and server not yet added
-    if command -v codex >/dev/null 2>&1 && [ -x "$SCRIPT_DIR/dist/node_repl" ]; then
+    if command -v codex >/dev/null 2>&1 && [ -x "$runtime_node_repl_path" ]; then
         if ! codex mcp list 2>/dev/null | grep -q "^node_repl[[:space:]]"; then
-            codex mcp add node_repl "$SCRIPT_DIR/dist/node_repl" >/dev/null 2>&1 || true
+            codex mcp add node_repl "$runtime_node_repl_path" >/dev/null 2>&1 || true
         fi
     fi
 }
@@ -340,7 +429,15 @@ resolve_browser_use_runtime_env
 export CHROME_DESKTOP="${APP_DESKTOP_ID}.desktop"
 register_url_scheme_handlers
 
-if [[ "$ELECTRON_BIN_RESOLVED" == node:* ]]; then
+if [ "$PRODUCT_MODE" -eq 1 ]; then
+    "$ELECTRON_BIN_RESOLVED" \
+        --no-sandbox \
+        --disable-gpu-compositing \
+        --disable-background-timer-throttling \
+        --class="$APP_DESKTOP_ID" \
+        "${OZONE_FLAGS[@]}" \
+        "$@"
+elif [[ "$ELECTRON_BIN_RESOLVED" == node:* ]]; then
     node "${ELECTRON_BIN_RESOLVED#node:}" \
         "$DIST_DIR" \
         --no-sandbox \
@@ -359,4 +456,3 @@ else
         "${OZONE_FLAGS[@]}" \
         "$@"
 fi
-

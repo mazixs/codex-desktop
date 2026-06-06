@@ -46,9 +46,16 @@ pass "Linux dark/light opaque background branch present"
 grep -Fq 'linux:{label:`File Manager`' "$main_bundle" || err "Linux file manager entry not found"
 pass "Linux file manager entry present"
 
-# App menu: Linux null-menu branch exists
-grep -Eq 'process\.platform===`linux`\?\([A-Za-z_$][\w$]*\.Menu\.setApplicationMenu\(null\)' "$main_bundle" || err "Linux app-menu patch not found"
-pass "Linux app-menu patch present"
+# App menu: product native menu is preserved on Linux
+# shellcheck disable=SC2016
+if grep -Eq 'process\.platform===`linux`\?\([A-Za-z_$][\w$]*\.Menu\.setApplicationMenu\(null\)' "$main_bundle"; then
+    err "Linux app-menu nullification patch is still present"
+fi
+# shellcheck disable=SC2016
+if grep -Fq 'process.platform===`win32`||process.platform===`linux`' "$main_bundle"; then
+    err "Linux removeMenu patch is still present"
+fi
+pass "Linux product native menu is preserved"
 
 # Comment-preload: stored-anchor screenshot path
 if [ -f "$comment_preload" ]; then
@@ -111,7 +118,7 @@ if [ -d "$DIST_DIR/plugins/openai-bundled" ]; then
         pass "Chrome Linux profile metadata patch present"
     fi
 else
-    pass "Browser Use plugin resources not present (optional)"
+    err "Browser Use plugin resources not present"
 fi
 
 grep -Eq 'installWhenMissing:!0,name:[A-Za-z_$][A-Za-z0-9_$]*,.*isAvailable:\(\{[^}]*\}\)=>[^{}]*externalBrowserUseAllowed' "$main_bundle" \
@@ -145,14 +152,14 @@ if [ -f "$DIST_DIR/node_repl" ]; then
         fi
     fi
 else
-    pass "node_repl not present (optional)"
+    err "node_repl not present"
 fi
 
 # node symlink for Browser Use fallback
-if [ -L "$DIST_DIR/node" ]; then
+if [ -e "$DIST_DIR/node" ]; then
     pass "node symlink present"
 else
-    pass "node symlink not present (optional)"
+    err "node runtime fallback not present"
 fi
 
 printf '[SMOKE] All smoke tests passed\n'

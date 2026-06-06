@@ -7,7 +7,7 @@
   "scripts": {
     "build": "./build.sh",
     "build:clean": "./build.sh --clean",
-    "package:portable": "./build.sh --clean --package",
+    "package:portable": "./build.sh --clean --fresh-extract --package",
     "verify": "bash -n build.sh && bash -n start.sh && bash -n ../scripts/ci-lib.sh && bash -n ../scripts/enable-pnpm.sh && bash -n ../scripts/install-actionlint.sh && bash -n ../scripts/validate-workflows.sh && bash -n ../scripts/verify-portable-artifact.sh && bash -n ../scripts/verify-arch-package.sh && bash -n ../scripts/verify-deb-package.sh && bash -n ../scripts/verify-rpm-package.sh && bash -n ../scripts/verify-release-assets.sh && bash -n ../scripts/generate-release-notes.sh && bash -n ../scripts/build-arch-package.sh && bash -n ../scripts/build-deb-package.sh && bash -n ../scripts/build-rpm-package.sh && bash -n ../packaging/arch/codex-desktop-wrapper.sh && bash -n ../packaging/skills-overrides/.curated/playwright/scripts/playwright_cli.sh && ./build.sh --help >/dev/null && ../scripts/generate-release-notes.sh --help >/dev/null && ../scripts/build-arch-package.sh --help >/dev/null && ../scripts/build-deb-package.sh --help >/dev/null && ../scripts/build-rpm-package.sh --help >/dev/null && ../scripts/verify-portable-artifact.sh --help >/dev/null && ../scripts/verify-arch-package.sh --help >/dev/null && ../scripts/verify-deb-package.sh --help >/dev/null && ../scripts/verify-rpm-package.sh --help >/dev/null && ../scripts/verify-release-assets.sh --help >/dev/null && bash -n ../tests/build-smoke.sh && bash -n ../tests/patch-regression.sh"
   },
   "keywords": [
@@ -25,12 +25,13 @@
     ]
   },
   "dependencies": {
-    "@openai/codex": "0.135.0",
-    "electron": "42.2.0"
+    "@openai/codex": "0.137.0",
+    "electron": "42.1.0"
   },
   "devDependencies": {
     "@electron/asar": "^4.2.0",
     "@electron/rebuild": "^4.0.4",
-    "node-abi": "4.31.0"
+    "node-abi": "4.31.0",
+    "node-gyp": "10.2.0"
   }
 }
