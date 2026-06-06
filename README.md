@@ -63,7 +63,7 @@ The Linux patch layer focuses on making the app feel native and predictable afte
 - **Project opening from Linux editors**: the app can offer installed Linux tools such as VS Code, VS Code Insiders, Cursor, Windsurf, Zed, Sublime Text, Android Studio, and JetBrains IDEs when opening a project.
 - **Codex backend on Linux**: the packaged launcher wires the Electron frontend to the Linux `@openai/codex` CLI instead of the macOS-only upstream backend binary.
 - **Packaged skills layout**: bundled skill overrides are copied into the Linux artifact and resolved from packaged paths, so the app can find them after installation.
-- **Stable bundled plugin runtime**: Browser Use, Chrome, and other bundled plugins are loaded from product `resources/plugins` with packaged `codex`, `node`, and `node_repl` resources. The launcher ignores stale inherited `CODEX_*` runtime paths by default so an older installed app cannot poison the active plugin runtime.
+- **Stable bundled plugin runtime**: Browser Use and other Linux-supported bundled plugins are loaded from product `resources/plugins` with packaged `codex`, `node`, and `node_repl` resources. The launcher ignores stale inherited `CODEX_*` runtime paths by default so an older installed app cannot poison the active plugin runtime.
 - **Voice input**: the Linux build preserves the upstream voice-input path and verifies that it launches in the packaged app.
 - **Phone-based control (Computer Use)**: the phone-based remote control feature (Computer Use) is fully functional on Linux, matching the native macOS experience.
 
@@ -75,13 +75,14 @@ The Linux patch layer focuses on making the app feel native and predictable afte
 - release notes are generated automatically from commit history between tags
 - CI runs workflow linting, shell validation, portable packaging, Arch install/launch smoke tests, and Debian install/launch smoke tests on GitHub Actions
 - the built-in file manager works on Linux and can open both file locations and individual files
-- Browser Use and Chrome bundled plugin resources are packaged and smoke-tested from product `resources/`, including the `codex` CLI resource required by Chrome native-host sync
+- Browser Use bundled plugin resources are packaged and smoke-tested from product `resources/`; Chrome is included in the marketplace only when the upstream bundle contains a Linux `extension-host`
 - common Linux editors and IDEs are offered for opening projects when their CLIs are installed
 - light and dark themes are both adapted for opaque Linux rendering
 - voice input works on Linux
 - phone-based control (Computer Use) works on Linux, matching the macOS behavior
 - the Linux build preserves the upstream native menu bar in product runtime
 - the current Linux build avoids the transparent-window and washed-out-theme glitches common in rough macOS-to-Linux ports
+- the in-app Browser plugin is the supported browser-control path on Linux; the external Chrome plugin needs an upstream Linux native messaging host before it can be auto-installed
 
 ⚠️ **Fragile by design**
 

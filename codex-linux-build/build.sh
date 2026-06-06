@@ -491,11 +491,14 @@ PY
         # tectonic to browser/latex in newer DMGs; keep both naming schemes.
         for plugin_name in browser browser-use chrome latex latex-tectonic; do
             if [ -d "$source_plugin/plugins/$plugin_name" ]; then
+                rm -rf "$BUILD_DIR/plugins/openai-bundled/plugins/$plugin_name"
                 cp -R "$source_plugin/plugins/$plugin_name" "$BUILD_DIR/plugins/openai-bundled/plugins/$plugin_name"
             fi
         done
         # Filter marketplace to Linux-safe bundled plugins. computer-use is a
         # macOS app bundle in upstream and needs a separate Linux backend.
+        # Chrome also needs a platform native messaging host; macOS DMGs often
+        # include only extension-host/macos/..., which cannot work on Linux.
         node - "$source_marketplace" "$BUILD_DIR/plugins/openai-bundled/.agents/plugins/marketplace.json" "$BUILD_DIR/plugins/openai-bundled" <<'NODE'
 const fs = require("fs");
 const path = require("path");
@@ -503,7 +506,24 @@ const sourcePath = process.argv[2];
 const destPath = process.argv[3];
 const bundleRoot = process.argv[4];
 const marketplace = JSON.parse(fs.readFileSync(sourcePath, "utf8"));
-const allowed = new Set(["browser", "browser-use", "chrome", "latex", "latex-tectonic"]);
+const allowedNames = ["browser", "browser-use", "latex", "latex-tectonic"];
+const chromeLinuxHost = path.join(
+  bundleRoot,
+  "plugins",
+  "chrome",
+  "extension-host",
+  "linux",
+  "x64",
+  "extension-host",
+);
+if (fs.existsSync(chromeLinuxHost)) {
+  allowedNames.push("chrome");
+} else if (fs.existsSync(path.join(bundleRoot, "plugins", "chrome"))) {
+  console.warn(
+    `[codex-linux] Excluding chrome from bundled marketplace because ${chromeLinuxHost} is missing.`,
+  );
+}
+const allowed = new Set(allowedNames);
 const plugins = (marketplace.plugins || []).filter((p) => allowed.has(p.name));
 const seen = new Set(plugins.map((plugin) => plugin.name));
 for (const name of allowed) {
@@ -1212,9 +1232,11 @@ with open(path, "w", encoding="utf-8") as handle:
 PY
     fi
 
-    # Ensure the bundled Chrome plugin behaves like bundled Browser Use and is
-    # installed automatically when the external browser feature gate is enabled.
-    python3 - "$main_bundle" <<'PY'
+    local chrome_linux_native_host="$BUILD_DIR/plugins/openai-bundled/plugins/chrome/extension-host/linux/x64/extension-host"
+    if [ -x "$chrome_linux_native_host" ]; then
+        # Ensure the bundled Chrome plugin behaves like bundled Browser Use and is
+        # installed automatically when the external browser feature gate is enabled.
+        python3 - "$main_bundle" <<'PY'
 import re
 import sys
 
@@ -1253,6 +1275,9 @@ if patched == 0 and "externalBrowserUseAllowed" in content and "`chrome`" in con
 with open(path, "w", encoding="utf-8") as handle:
     handle.write(content)
 PY
+    else
+        log "Skipping Chrome plugin auto-install gate; Linux extension-host is not packaged"
+    fi
 
     # =====================================================================
     # --- Disable macOS/Windows-specific window appearance properties ---

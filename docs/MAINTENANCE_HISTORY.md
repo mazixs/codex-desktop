@@ -13,6 +13,7 @@ This document records recent repository maintenance work that changed the Linux 
 - Documented that the unpacked `electron dist/` developer fallback is not a stable plugin validation target because it runs with `app.isPackaged=false` and can expose development plugin state or test plugin versions.
 - Hardened `start.sh` so Browser Use, Chrome, and bundled plugin runtime paths are selected from the active product `resources/` directory by default instead of stale inherited `CODEX_*` paths.
 - Added the packaged `resources/codex` CLI resource required by Chrome bundled plugin native-host sync.
+- Scoped the external Chrome plugin marketplace entry to artifacts that actually contain `extension-host/linux/x64/extension-host`; macOS-only Chrome native-host payloads no longer make Browser Use reconciliation fail on Linux.
 - Added verifier coverage that intentionally injects old `/opt/codex-desktop/dist` runtime paths and fails if Browser Use selects them.
 - Added verifier coverage for bundled plugin reconcile failures so CI catches missing product runtime resources directly.
 - Restored the upstream File/Edit/View/Window/Help native menu in product runtime by removing the legacy Linux `removeMenu()` and `Menu.setApplicationMenu(null)` patches.

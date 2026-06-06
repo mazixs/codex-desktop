@@ -34,6 +34,7 @@ for candidate in "$DIST_DIR"/plugins/openai-bundled/plugins/{browser,browser-use
 done
 chrome_browser_client="$DIST_DIR/plugins/openai-bundled/plugins/chrome/scripts/browser-client.mjs"
 chrome_plugin_json="$DIST_DIR/plugins/openai-bundled/plugins/chrome/.codex-plugin/plugin.json"
+chrome_linux_native_host="$DIST_DIR/plugins/openai-bundled/plugins/chrome/extension-host/linux/x64/extension-host"
 
 # Opaque background: Linux branch exists
 # shellcheck disable=SC2016
@@ -79,10 +80,14 @@ if [ -d "$DIST_DIR/plugins/openai-bundled" ]; then
     [ -f "$DIST_DIR/plugins/openai-bundled/.agents/plugins/marketplace.json" ] || err "Browser Use marketplace.json missing"
     pass "Browser Use plugin resources present"
 
-    if [ -d "$DIST_DIR/plugins/openai-bundled/plugins/chrome" ]; then
+    if [ -d "$DIST_DIR/plugins/openai-bundled/plugins/chrome" ] && [ -x "$chrome_linux_native_host" ]; then
         grep -Fq '"name": "chrome"' "$DIST_DIR/plugins/openai-bundled/.agents/plugins/marketplace.json" \
             || err "Chrome plugin marketplace entry missing"
-        pass "Chrome plugin marketplace entry present"
+        pass "Chrome plugin marketplace entry present with Linux native host"
+    elif [ -d "$DIST_DIR/plugins/openai-bundled/plugins/chrome" ]; then
+        ! grep -Fq '"name": "chrome"' "$DIST_DIR/plugins/openai-bundled/.agents/plugins/marketplace.json" \
+            || err "Chrome plugin marketplace entry present without Linux native host"
+        pass "Chrome plugin marketplace entry absent without Linux native host"
     fi
 
     if [ -n "$browser_plugin_json" ] && [ -f "$browser_plugin_json" ]; then
@@ -121,9 +126,15 @@ else
     err "Browser Use plugin resources not present"
 fi
 
-grep -Eq 'installWhenMissing:!0,name:[A-Za-z_$][A-Za-z0-9_$]*,.*isAvailable:\(\{[^}]*\}\)=>[^{}]*externalBrowserUseAllowed' "$main_bundle" \
-    || err "Chrome plugin auto-install gate not found"
-pass "Chrome plugin auto-install gate present"
+if [ -x "$chrome_linux_native_host" ]; then
+    grep -Eq 'installWhenMissing:!0,name:[A-Za-z_$][A-Za-z0-9_$]*,.*isAvailable:\(\{[^}]*\}\)=>[^{}]*externalBrowserUseAllowed' "$main_bundle" \
+        || err "Chrome plugin auto-install gate not found"
+    pass "Chrome plugin auto-install gate present"
+else
+    ! grep -Eq 'installWhenMissing:!0,name:[A-Za-z_$][A-Za-z0-9_$]*,.*isAvailable:\(\{[^}]*\}\)=>[^{}]*externalBrowserUseAllowed' "$main_bundle" \
+        || err "Chrome plugin auto-install gate present without Linux native host"
+    pass "Chrome plugin auto-install gate absent without Linux native host"
+fi
 
 # node_repl binary for Browser Use MCP server
 if [ -f "$DIST_DIR/node_repl" ]; then
