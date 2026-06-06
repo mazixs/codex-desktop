@@ -131,6 +131,7 @@ jobs:
         id: dmg-headers
         run: |
           dmg_headers=$(curl -sI https://persistent.oaistatic.com/codex-app-prod/Codex.dmg | grep -iE 'content-length|last-modified|etag' | tr -d '\r' | sort)
+          test -n "$dmg_headers"
           dmg_key=$(echo "$dmg_headers" | sha256sum | awk '{print $1}')
           echo "dmg_key=$dmg_key" >> "$GITHUB_OUTPUT"
 
@@ -138,13 +139,17 @@ jobs:
         uses: actions/cache@v5
         with:
           path: Codex.dmg
-          key: ${{ runner.os }}-codex-dmg-${{ steps.dmg-headers.outputs.dmg-key }}
-          restore-keys: |
-            ${{ runner.os }}-codex-dmg-
+          key: ${{ runner.os }}-codex-dmg-${{ steps.dmg-headers.outputs.dmg_key }}
 
       - name: Build portable artifact
         working-directory: codex-linux-build
         run: pnpm run package:portable
+
+      - name: Run patch regression checks
+        run: ./tests/patch-regression.sh
+
+      - name: Run build smoke checks
+        run: ./tests/build-smoke.sh
 
       - name: Verify portable artifact integrity
         run: ./scripts/verify-portable-artifact.sh --artifacts-dir codex-linux-build/artifacts
@@ -319,4 +324,3 @@ jobs:
           path: |
             /tmp/codex-rpm-output/*.rpm
             /tmp/codex-rpm-output/*.rpm.sha256
-

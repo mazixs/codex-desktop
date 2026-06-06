@@ -23,11 +23,13 @@ This repository ships a prebuilt Linux distribution of Codex Desktop. It is not 
 
 The current main-branch baseline is:
 
-- upstream Codex Desktop: `26.601.21317`
+- upstream Codex Desktop: `26.602.40724`
 - Linux Codex CLI: `@openai/codex 0.137.0`
-- Electron runtime: `42.2.0`
+- Electron runtime: `42.1.0`
 
 Each release preserves the exact upstream version in `build-metadata.env`, so installed packages and release artifacts can be traced back to the DMG they were built from.
+
+The supported runtime is now the product-style Electron layout. Release and local package artifacts launch a renamed Electron binary (`codex-desktop`) against `resources/app.asar`, so Electron reports `app.isPackaged=true` and uses the same code paths as the upstream desktop product. The old unpacked `electron dist/` flow is kept only as a development fallback for patch iteration. It is not a reliable plugin or skills validation target because dev/unpacked builds can expose unstable states, development plugin catalogs, and test plugin versions that do not match the packaged product.
 
 Under the hood, the build pipeline adapts the official macOS Codex Desktop distribution by:
 
@@ -45,6 +47,7 @@ Codex Desktop currently ships upstream as a macOS desktop application. This proj
 
 - **Ready-to-install artifacts**: portable archive, Arch package, and Debian package are built from the same checked artifact contract.
 - **Bundled runtime**: the app includes the Electron runtime, Linux-native native modules, launcher, icons, packaged skill overrides, and metadata.
+- **Product Electron mode**: releases run from `resources/app.asar` with `app.isPackaged=true`, not from the unpacked developer `dist/` app.
 - **Upstream included**: the official Codex Desktop app bundle is downloaded during the build and carried into the release artifact with version metadata.
 - **Linux-first UX fixes**: transparency, theme, menu, file-manager, editor-detection, voice-input, and skills-path issues are patched before packaging.
 - **CI-backed releases**: GitHub Actions validates workflows, packages the app, installs the distro packages, and smoke-launches them under `xvfb`.
@@ -60,6 +63,7 @@ The Linux patch layer focuses on making the app feel native and predictable afte
 - **Project opening from Linux editors**: the app can offer installed Linux tools such as VS Code, VS Code Insiders, Cursor, Windsurf, Zed, Sublime Text, Android Studio, and JetBrains IDEs when opening a project.
 - **Codex backend on Linux**: the packaged launcher wires the Electron frontend to the Linux `@openai/codex` CLI instead of the macOS-only upstream backend binary.
 - **Packaged skills layout**: bundled skill overrides are copied into the Linux artifact and resolved from packaged paths, so the app can find them after installation.
+- **Stable bundled plugin runtime**: Browser Use, Chrome, and other bundled plugins are loaded from product `resources/plugins` with bundled `node` and `node_repl` paths. The launcher ignores stale inherited `CODEX_*` runtime paths by default so an older installed app cannot poison the active plugin runtime.
 - **Voice input**: the Linux build preserves the upstream voice-input path and verifies that it launches in the packaged app.
 - **Phone-based control (Computer Use)**: the phone-based remote control feature (Computer Use) is fully functional on Linux, matching the native macOS experience.
 
@@ -71,6 +75,7 @@ The Linux patch layer focuses on making the app feel native and predictable afte
 - release notes are generated automatically from commit history between tags
 - CI runs workflow linting, shell validation, portable packaging, Arch install/launch smoke tests, and Debian install/launch smoke tests on GitHub Actions
 - the built-in file manager works on Linux and can open both file locations and individual files
+- Browser Use and Chrome bundled plugin resources are packaged and smoke-tested from product `resources/`
 - common Linux editors and IDEs are offered for opening projects when their CLIs are installed
 - light and dark themes are both adapted for opaque Linux rendering
 - voice input works on Linux
@@ -101,7 +106,7 @@ Every asset is accompanied by a `.sha256` checksum. Verify before installing:
 sha256sum -c codex-desktop-native-<version>-<platform>.<ext>.sha256
 ```
 
-The release assets are the intended user-facing product. You should not need to download a DMG, run patch scripts manually, or assemble Electron pieces yourself.
+The release assets are the intended user-facing product. You should not need to download a DMG, run patch scripts manually, or assemble Electron pieces yourself. For plugin behavior, use the released package or portable product artifact; the unpacked developer launcher is not representative.
 
 ## Local Build
 
@@ -120,21 +125,24 @@ git clone https://github.com/mazixs/codex-desktop.git
 cd codex-desktop/codex-linux-build
 
 pnpm install --frozen-lockfile
-pnpm run build
-./start.sh
-```
-
-To create the same portable artifact used in releases:
-
-```bash
 pnpm run package:portable
 ```
 
-Artifacts are written to `codex-linux-build/artifacts/`.
+Artifacts are written to `codex-linux-build/artifacts/`. To smoke-test the product runtime locally, extract the portable archive and launch its `start.sh`:
+
+```bash
+mkdir -p /tmp/codex-desktop-product
+tar -xzf artifacts/codex-desktop-native-*-linux-portable-x64.tar.gz -C /tmp/codex-desktop-product
+/tmp/codex-desktop-product/codex-desktop-native-*-linux-portable-x64/start.sh
+```
+
+`pnpm run build` still exists for fast patch iteration against the unpacked `dist/` tree. Do not use `pnpm run build && ./start.sh` as final validation for Browser Use, Chrome, bundled plugins, or skills: that path runs Electron with `app.isPackaged=false`, starts `webview-server.js`, and may load dev/test plugin state that differs from the product app.
 
 From that portable artifact you can also build the distro-native packages locally:
 
 ```bash
+cd ..
+
 # Arch
 ./scripts/build-arch-package.sh \
   --source codex-linux-build/artifacts/*.tar.gz \
@@ -177,9 +185,10 @@ The repository treats CI/CD as a product contract, not a best-effort build:
 - Node is pinned to `24` in GitHub Actions
 - `pnpm` is activated only through `corepack` using the version from `codex-linux-build/package.json`
 - workflow syntax is linted with `actionlint`; shell scripts are linted with `shellcheck`
-- the portable artifact must contain bundled Electron, Linux icons, packaged skill overrides, metadata, and a working launcher
-- the Arch artifact must install through `pacman -U`, contain the bundled runtime under `/opt/codex-desktop`, and survive a headless `xvfb-run` smoke launch
-- the Debian artifact must install through `dpkg -i`, contain the same runtime layout, and survive the same headless smoke launch
+- the portable artifact must contain bundled Electron, `resources/app.asar`, `app.asar.unpacked`, product plugin resources, Linux icons, packaged skill overrides, metadata, and a working launcher
+- the Arch artifact must install through `pacman -U`, contain the bundled product runtime under `/opt/codex-desktop`, and survive a headless `xvfb-run` smoke launch
+- the Debian artifact must install through `dpkg -i`, contain the same product runtime layout, and survive the same headless smoke launch
+- launch smoke tests must report `packaged=true`, avoid React devtools, and prove Browser Use selects the product `resources/node_repl` instead of stale inherited `CODEX_*` paths
 - releases publish only after the asset contract, checksums, metadata, and release notes all validate
 
 Repo-controlled regressions fail with deterministic messages. External failures (GitHub outages, upstream DMG CDN issues, apt/pacman mirror errors) are treated as retriable infrastructure failures.
@@ -190,8 +199,8 @@ Repo-controlled regressions fail with deterministic messages. External failures 
 codex-desktop/
 ├── codex-linux-build/     build toolchain, launcher, portable packaging
 │   ├── build.sh           orchestrates download → extract → rebuild → patch → package
-│   ├── start.sh           portable launcher (GPU/Wayland flags, LSP bridge)
-│   └── webview-server.js  local static host serving the frontend UI
+│   ├── start.sh           portable launcher (product app.asar mode, GPU/Wayland flags)
+│   └── webview-server.js  local static host used only by the unpacked dev fallback
 ├── scripts/               repository-level automation
 │   ├── build-arch-package.sh
 │   ├── build-deb-package.sh

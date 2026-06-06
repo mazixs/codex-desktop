@@ -77,10 +77,15 @@ Four functions in the deeplinks bundle are patched to support bundled skill over
 
 The `start.sh` wrapper injects GPU composition flags (`--disable-gpu-compositing`) and Wayland/Ozone flags when appropriate.
 
-## 3. Webview HTTP Proxy
+## 3. Product Runtime Layout
 
-To bypass `app.isPackaged = false` limitations and strict CORS/CSP parameters designed around macOS sandbox environments, the build script generates a secondary lightweight Node.js Server (`webview-server.js`). 
-This server acts as a local static host on port `5175`, serving the frontend UI assets locally, which the main Electron process then loads.
+Release artifacts run as a packaged Electron application. The patched upstream app is packed back into `node_modules/electron/dist/resources/app.asar`, native modules are unpacked into `app.asar.unpacked`, and external runtime resources such as bundled plugins, `node`, and `node_repl` live next to the archive under `resources/`. Runtime checksums are stored with basename-relative paths so portable archives remain relocatable after extraction.
+
+This repository intentionally moved away from using the unpacked Codex developer runtime as the release target. In `electron dist/` mode Electron reports `app.isPackaged = false`, the app can enter development-only branches, and bundled plugins may reconcile against dev/test catalog state or stale environment overrides. That instability is especially visible in Browser Use and Chrome, where the selected `node`, `node_repl`, plugin marketplace, and trusted browser-client hash must match the packaged resources.
+
+The product launcher therefore executes `node_modules/electron/dist/codex-desktop` without an app-directory argument. It also sets `CODEX_ELECTRON_RESOURCES_PATH`, `CODEX_ELECTRON_BUNDLED_PLUGINS_RESOURCES_PATH`, `CODEX_BROWSER_USE_NODE_PATH`, `NODE_REPL_NODE_PATH`, and `CODEX_NODE_REPL_PATH` from the active product `resources/` directory by default. Explicit runtime overrides are possible only by setting `CODEX_DESKTOP_RESPECT_RUNTIME_ENV=1`, which is intended for debugging rather than release packaging.
+
+The `webview-server.js` proxy remains only for the unpacked development fallback. Product launches do not pass `dist/` to Electron and therefore keep `app.isPackaged = true`.
 
 ## 4. App Server (Language Server Protocol)
 

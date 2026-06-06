@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./ci-lib.sh
+# shellcheck disable=SC1091
 source "$SCRIPT_DIR/ci-lib.sh"
 
 PACKAGE_FILE=""
@@ -72,7 +73,7 @@ run_smoke_test() {
     local launch_command=""
     local smoke_log="/tmp/codex-desktop-smoke.log"
 
-    launch_command="mkdir -p ~/.cache ~/.config ~/.local/share && launch_rc=0 && timeout 25s xvfb-run -a ${LAUNCHER} >${smoke_log} 2>&1 || launch_rc=\$?; if [ \"\$launch_rc\" -ne 0 ] && [ \"\$launch_rc\" -ne 124 ]; then cat ${smoke_log}; exit 1; fi; if grep -Eq \"Electron runtime not found|Build output not found|Codex CLI not found\" ${smoke_log}; then cat ${smoke_log}; exit 1; fi"
+    launch_command="mkdir -p ~/.cache ~/.config ~/.local/share && launch_rc=0 && env CODEX_BROWSER_USE_NODE_PATH=/usr/bin/node CODEX_ELECTRON_BUNDLED_PLUGINS_RESOURCES_PATH=/opt/codex-desktop/dist CODEX_ELECTRON_RESOURCES_PATH=/opt/codex-desktop/dist CODEX_NODE_REPL_PATH=/opt/codex-desktop/dist/node_repl NODE_REPL_NODE_PATH=/usr/bin/node XDG_SESSION_TYPE=x11 WAYLAND_DISPLAY='' timeout 25s xvfb-run -a ${LAUNCHER} >${smoke_log} 2>&1 || launch_rc=\$?; if [ \"\$launch_rc\" -ne 0 ] && [ \"\$launch_rc\" -ne 124 ]; then cat ${smoke_log}; exit 1; fi; if grep -Eq \"Electron runtime not found|Build output not found|Codex CLI not found|Product Electron binary not found|Desktop bootstrap failed\" ${smoke_log}; then cat ${smoke_log}; exit 1; fi; if grep -Eq \"packaged[\\\":= ]+false|react devtools extension loaded\" ${smoke_log}; then cat ${smoke_log}; exit 1; fi; if ! grep -Eq \"packaged[\\\":= ]+true\" ${smoke_log}; then cat ${smoke_log}; exit 1; fi; if grep -Fq \"/opt/codex-desktop/dist/node_repl\" ${smoke_log}; then cat ${smoke_log}; exit 1; fi; if ! grep -Fq \"/opt/codex-desktop/node_modules/electron/dist/resources/node_repl\" ${smoke_log}; then cat ${smoke_log}; exit 1; fi"
 
     if [ -n "$SMOKE_USER" ]; then
         runuser -u "$SMOKE_USER" -- bash -lc "$launch_command"
@@ -107,7 +108,15 @@ main() {
     assert_package_entry "$listing_file" "usr/share/pixmaps/codex-desktop.png"
     assert_package_entry "$listing_file" "usr/share/icons/hicolor/256x256/apps/codex-desktop.png"
     assert_package_entry "$listing_file" "opt/codex-desktop/node_modules/electron/dist/electron"
-    assert_package_entry "$listing_file" "opt/codex-desktop/dist/.vite/build/bootstrap.js"
+    assert_package_entry "$listing_file" "opt/codex-desktop/node_modules/electron/dist/codex-desktop"
+    assert_package_entry "$listing_file" "opt/codex-desktop/node_modules/electron/dist/resources/app.asar"
+    assert_package_entry "$listing_file" "opt/codex-desktop/node_modules/electron/dist/resources/app.asar.unpacked/node_modules/better-sqlite3/build/Release/better_sqlite3.node"
+    assert_package_entry "$listing_file" "opt/codex-desktop/node_modules/electron/dist/resources/app.asar.unpacked/node_modules/node-pty/build/Release/pty.node"
+    assert_package_entry "$listing_file" "opt/codex-desktop/node_modules/electron/dist/resources/plugins/openai-bundled/.agents/plugins/marketplace.json"
+    assert_package_entry "$listing_file" "opt/codex-desktop/node_modules/electron/dist/resources/node.sha256"
+    assert_package_entry "$listing_file" "opt/codex-desktop/node_modules/electron/dist/resources/node_repl"
+    assert_package_entry "$listing_file" "opt/codex-desktop/node_modules/electron/dist/resources/node_repl.sha256"
+    assert_package_entry "$listing_file" "opt/codex-desktop/node_modules/electron/dist/resources/node_repl.runtime.env"
     assert_desktop_entry_contract
 
     pacman -U --noconfirm "$PACKAGE_FILE"

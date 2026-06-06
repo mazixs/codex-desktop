@@ -90,12 +90,15 @@
 | # | Патч | Цель | macOS-специфично? | Linux-адаптация | Статус |
 |---|------|------|-------------------|-----------------|--------|
 | E1 | **Ozone/Wayland flags** | `--ozone-platform=wayland` при `XDG_SESSION_TYPE=wayland` | Нет — Linux display server | Автоопределение | ✅ Работает |
-| E2 | **Browser Use env vars** | `CODEX_ELECTRON_RESOURCES_PATH`, `CODEX_BROWSER_USE_NODE_PATH`, `CODEX_NODE_REPL_PATH` | Нет — runtime wiring | Экспорт переменных | ✅ Работает |
+| E2 | **Browser Use env vars** | `CODEX_ELECTRON_RESOURCES_PATH`, `CODEX_BROWSER_USE_NODE_PATH`, `NODE_REPL_NODE_PATH`, `CODEX_NODE_REPL_PATH` | Нет — runtime wiring | По умолчанию выбирает активный product `resources/`, stale env разрешён только через `CODEX_DESKTOP_RESPECT_RUNTIME_ENV=1` | ✅ Работает |
 | E3 | **node_repl MCP auto-register** | `codex mcp add node_repl` | Нет — CLI интеграция | Авто-добавление MCP сервера | ✅ Работает |
 | E4 | **URL scheme handlers** | `codex://`, `codex-browser-sidebar://` | Да — xdg-mime | `xdg-mime default` | ✅ Работает |
 | E5 | **Electron binary robust extraction** | Скачивание Electron при отсутствии | Нет — portable artifact | `@electron/get` + unzip | ✅ Работает |
+| E6 | **Product app.asar launch** | Запуск без `dist/` argument | Нет — Electron packaging contract | `codex-desktop` binary + `resources/app.asar`, `app.isPackaged=true` | ✅ Работает |
 
 ---
+
+Product runtime is now the only supported release and plugin-validation target. The unpacked `electron dist/` launcher remains useful for local patch iteration, but it runs with `app.isPackaged=false`, starts `webview-server.js`, and may expose unstable development state or test bundled plugin versions. Browser Use and Chrome validation must use the product artifact so plugin resources, `node`, and `node_repl` resolve from `node_modules/electron/dist/resources/`.
 
 ## 3. Что осталось macOS-специфичным и НЕ пропатчено (GAP-анализ)
 

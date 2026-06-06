@@ -12,17 +12,19 @@ This document records the exact reverse-engineering steps and workarounds implem
 ## 2. Dealing with Native Modules
 Native Node.js extensions specific to the macOS build fail to load under Linux's dynamic linker (glibc).
 * **`sparkle.node`**: A wrapper for the Sparkle macOS auto-updater. It has no Linux equivalent. **Solution:** Completely deleted. We patch Electron to ignore `require('electron-squirrel-startup')` and Sparkle components.
-* **`better-sqlite3.node` & `node-pty.node`**: Hard-compiled for macOS. **Solution:** Script deletes the `.node` binaries in `node_modules`. Instead of fetching from unverified sources, the pipeline uses `@electron/rebuild` against `electron@42.0.1` headers to securely compile native versions of `better-sqlite3@12.10.0` and `node-pty@1.1.0` locally using `/usr/bin/gcc`.
+* **`better-sqlite3.node` & `node-pty.node`**: Hard-compiled for macOS. **Solution:** Script deletes the `.node` binaries in `node_modules`. Instead of fetching from unverified sources, the pipeline uses `@electron/rebuild` against the pinned upstream-compatible Electron headers (`electron@42.1.0`) to securely compile native versions of `better-sqlite3@12.10.0` and `node-pty@1.1.0` locally using `/usr/bin/gcc`.
 
 ## 3. The `codex` LSP CLI Replacement
 * Opening `/Contents/Resources/bin/codex` revealed it was the Rust backend acting as the Language Server (LSP) and WebSocket communication handler.
 * **Solution:** Analyzed the `package.json` logic and discovered the open-source npm equivalent: `@openai/codex`.
 * In `start.sh`, we dynamically install the `@openai/codex` CLI and set the `CODEX_CLI_PATH` environment variable. Electron detects this path and spawns the node-based CLI server directly instead of looking for the missing Darwin binary.
 
-## 4. Bypassing Application Sandboxing and `isPackaged`
-* When running unpacked code (`isPackaged = false`), Electron expects a Vite development server (localhost:5175). Since we pull static bundled assets (`dist/webview`), Electron fails to `loadURL()` due to missing protocols and strict Cross-Origin Resource Sharing (CORS) rules.
-* **Solution:** We introduced a local Node.js HTTP server (`webview-server.js`). It hosts the `dist/webview` directory on `127.0.0.1:5175`, effectively mimicking Vite's production/dev behavior organically. 
-* To prevent `EADDRINUSE` port collision loops, `start.sh` uses `fuser -k 5175/tcp` before launching.
+## 4. Product Packaging and `isPackaged`
+* Product artifacts pack the patched app back into `resources/app.asar` and launch a renamed Electron binary (`codex-desktop`) without passing an app directory. This keeps Electron on the packaged runtime branch (`app.isPackaged = true`).
+* External runtime helpers under `resources/` include relocatable checksum files, and `node_repl.runtime.env` records the pinned primary-runtime version, source URL, source SHA256, and packaged SHA256.
+* The old `electron dist/` flow is retained only as an unpacked development fallback. In that fallback, `webview-server.js` hosts `dist/webview` on `127.0.0.1:5175` to mimic the asset server expected by unpacked code.
+* The unpacked fallback is not a plugin validation target. It runs with `app.isPackaged = false` and can expose development-only state, dev/test bundled plugin catalog behavior, and stale `CODEX_*` runtime paths inherited from an already installed Codex Desktop process.
+* Product `start.sh` now derives Browser Use and Chrome runtime paths from the active artifact's `resources/` directory by default. This prevents an older `/opt/codex-desktop/dist/node_repl` or system `node` override from breaking the Browser Use plugin in a freshly packaged app. Maintainers can opt back into inherited paths only with `CODEX_DESKTOP_RESPECT_RUNTIME_ENV=1`.
 
 ## 5. Main Process Patching (`main.js`)
 Minified JavaScript requires exact structural `sed` replacements:
@@ -56,8 +58,8 @@ Minified JavaScript requires exact structural `sed` replacements:
 
 The current maintenance baseline also includes:
 
-* **Fresh upstream DMG refresh:** the repository-local `Codex.dmg` was replaced after confirming a new upstream release (SHA-256 `03f8e6758bc67b71af35295c42890a6b112fbd6d5789e9d7d63e4b328e1a05ec`).
-* **New upstream app version:** the refreshed bundle packaged as `26.601.21317`.
+* **Fresh upstream DMG refresh:** the repository-local `Codex.dmg` was replaced after confirming a new upstream release (SHA-256 `23ead69adccc6910912cef1e0c73fb7667e4d07fcce7cfcad45eae54d38ad897`).
+* **New upstream app version:** the refreshed bundle packaged as `26.602.40724`.
 * **CLI bump:** the bundled Linux launcher path now targets `@openai/codex@0.137.0`.
 * **Patch validation:** the refreshed upstream bundle required new patch anchors in both the main bundle and the skills bundle, but the Linux opacity, file-manager, skill override, and menu patches still apply after rebinding.
 * **Operational caveat:** `./build.sh --clean` removes build outputs but not `codex_extracted/`. When validating a new upstream DMG or a CI patch failure, delete `codex_extracted/` or build against a fresh DMG path to avoid false-local green runs on stale extracted sources.
@@ -79,4 +81,3 @@ The current maintenance baseline also includes:
   - **Launcher (`open-chrome-window.js`):** Modified the browser launch command to dynamically check for the first available binary (`google-chrome-stable`, `google-chrome`, `brave-browser`, etc.) in the PATH.
   - **Profile paths (`open-chrome-window.js` & `check-extension-installed.js`):** Patched the user data directory resolver to dynamically check `.config/google-chrome`, `.config/BraveSoftware/Brave-Browser`, and `.config/chromium` based on which one actually exists.
   - **Native Messaging (`installManifest.mjs`):** Patched the extension native messaging host installer to write the JSON manifest to all three configuration folders, enabling the extension to work seamlessly regardless of whether the user runs Google Chrome, Brave, or Chromium.
-
