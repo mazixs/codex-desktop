@@ -126,6 +126,11 @@ Source0: ${source_archive_name}
 %define debug_package %{nil}
 %define __strip /bin/true
 %define _build_id_links none
+# The application bundles its runtime under /opt/codex-desktop. Fedora's
+# brp-mangle-shebangs rewrites /usr/bin/env node to /usr/bin/node, which makes
+# the packaged @openai/codex CLI depend on a system node package instead of the
+# product resources/node selected by start.sh.
+%undefine __brp_mangle_shebangs
 
 %description
 Prebuilt native Linux package for OpenAI Codex Desktop.
