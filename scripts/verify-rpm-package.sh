@@ -118,6 +118,10 @@ run_smoke_test() {
         cat "$smoke_log"
         exit 1
     fi
+    if grep -Eq 'bundled_plugins_reconcile_failed|bundled_plugins_marketplace_install_failed' "$smoke_log"; then
+        cat "$smoke_log"
+        exit 1
+    fi
     if grep -Eq 'packaged[":= ]+false|react devtools extension loaded' "$smoke_log"; then
         cat "$smoke_log"
         exit 1
@@ -166,6 +170,7 @@ main() {
     assert_package_entry "$listing_file" "/opt/codex-desktop/node_modules/electron/dist/resources/app.asar.unpacked/node_modules/better-sqlite3/build/Release/better_sqlite3.node"
     assert_package_entry "$listing_file" "/opt/codex-desktop/node_modules/electron/dist/resources/app.asar.unpacked/node_modules/node-pty/build/Release/pty.node"
     assert_package_entry "$listing_file" "/opt/codex-desktop/node_modules/electron/dist/resources/plugins/openai-bundled/.agents/plugins/marketplace.json"
+    assert_package_entry "$listing_file" "/opt/codex-desktop/node_modules/electron/dist/resources/codex"
     assert_package_entry "$listing_file" "/opt/codex-desktop/node_modules/electron/dist/resources/node.sha256"
     assert_package_entry "$listing_file" "/opt/codex-desktop/node_modules/electron/dist/resources/node_repl"
     assert_package_entry "$listing_file" "/opt/codex-desktop/node_modules/electron/dist/resources/node_repl.sha256"

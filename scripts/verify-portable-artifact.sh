@@ -96,6 +96,7 @@ main() {
     require_dir "$resources_dir/app.asar.unpacked"
     require_dir "$resources_dir/plugins/openai-bundled"
     require_file "$resources_dir/plugins/openai-bundled/.agents/plugins/marketplace.json"
+    require_file "$resources_dir/codex"
     require_file "$resources_dir/node"
     require_file "$resources_dir/node.sha256"
     require_file "$resources_dir/node_repl"
@@ -157,6 +158,10 @@ NODE
     if grep -Eq 'Electron runtime not found|Build output not found|Codex CLI not found|Product Electron binary not found|Desktop bootstrap failed' "$launch_log"; then
         cat "$launch_log"
         ci_fail "Portable launcher reported a fatal bootstrap error"
+    fi
+    if grep -Eq 'bundled_plugins_reconcile_failed|bundled_plugins_marketplace_install_failed' "$launch_log"; then
+        cat "$launch_log"
+        ci_fail "Portable launcher failed bundled plugin reconciliation"
     fi
     if grep -Eq 'packaged[":= ]+false|react devtools extension loaded' "$launch_log"; then
         cat "$launch_log"
