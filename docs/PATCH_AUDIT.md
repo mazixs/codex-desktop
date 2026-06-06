@@ -43,7 +43,7 @@
 | A8 | **Chrome: installed browsers** | Добавляет Brave и Chromium в список известных браузеров | Нет — функциональность | `KNOWN_BROWSERS` + Linux commands | ✅ Работает |
 | A9 | **Chrome: open-chrome-window** | Автоопределение бинаря Chrome на Linux | Да | Список кандидатов + `commandPath` | ✅ Работает |
 | A10 | **Chrome: check-extension-installed** | Linux-пути к профилям для проверки расширения | Да | `linuxDirs` в `getChromeUserDataDir` | ✅ Работает |
-| A11 | **Chrome: installManifest** | `NativeMessagingHosts` пути для Linux | Да | `.config/...` пути для Brave, Chromium | ✅ Работает |
+| A11 | **Chrome: installManifest** | `NativeMessagingHosts` пути для Linux | Да | `.config/...` пути для Brave, Chromium; marketplace включается только если есть Linux `extension-host` | ⚠️ Зависит от upstream host |
 | A12 | **Plugin version suffix** | Добавляет `-linux.1` к версиям плагинов | Нет — идентификация | Версионирование | ✅ Работает |
 | A13 | **node_repl замена** | Замена Mach-O `node_repl` на Linux ELF | Да — бинарный компонент | Скачивание из OpenAI primary runtime + glibc patch | ✅ Работает |
 | A14 | **node symlink** | `dist/node` → системный `node` | Нет — fallback для Browser Use | Симлинк | ✅ Работает |
@@ -62,7 +62,7 @@
 | # | Патч | Цель | macOS-специфично? | Linux-адаптация | Статус |
 |---|------|------|-------------------|-----------------|--------|
 | C1 | **Browser Use trusted client hash** | Синхронизация SHA-256 хеша `browser-client.mjs` | Нет — security trust chain | Замена единственного хеша в бандле | ✅ Работает |
-| C2 | **Chrome plugin auto-install gate** | Заставляет Chrome-плагин вести себя как Browser Use (auto-install) | Нет — функциональность | `installWhenMissing:!0` | ✅ Работает |
+| C2 | **Chrome plugin auto-install gate** | Заставляет Chrome-плагин вести себя как Browser Use (auto-install) | Нет — функциональность | `installWhenMissing:!0`, только при наличии Linux `extension-host` | ⚠️ Зависит от upstream host |
 | C3 | **Opaque background (transparent→dark/light)** | macOS vibrancy использует `#00000000`; на Linux это ломает фон | Да — `backgroundMaterial`, `vibrancy` | Linux-ветка с `backgroundColor` и `backgroundMaterial:null` | ✅ Работает |
 | C4 | **UY window type (`panel` → `utility`)** | На macOS `type:'panel'` для utility windows; на Linux нужен `type:'utility'` | Да | `...platform===`linux`?{type:`utility`}:{}` | ✅ Работает |
 | C5 | **hotkeyWindowHome/Thread opacity** | `transparent:!1` на macOS → `transparent:platform!==`linux`` | Да |  Непрозрачность на Linux | ✅ Работает |
@@ -91,7 +91,7 @@
 |---|------|------|-------------------|-----------------|--------|
 | E1 | **Ozone/Wayland flags** | `--ozone-platform=wayland` при `XDG_SESSION_TYPE=wayland` | Нет — Linux display server | Автоопределение | ✅ Работает |
 | E2 | **Browser Use env vars** | `CODEX_ELECTRON_RESOURCES_PATH`, `CODEX_BROWSER_USE_NODE_PATH`, `NODE_REPL_NODE_PATH`, `CODEX_NODE_REPL_PATH` | Нет — runtime wiring | По умолчанию выбирает активный product `resources/`, stale env разрешён только через `CODEX_DESKTOP_RESPECT_RUNTIME_ENV=1` | ✅ Работает |
-| E2a | **Chrome native-host CLI resource** | `resources/codex` | Нет — bundled plugin resource contract | Symlink на packaged `@openai/codex` CLI для product Electron resources | ✅ Работает |
+| E2a | **Bundled plugin CLI resource** | `resources/codex` | Нет — bundled plugin resource contract | Symlink на packaged `@openai/codex` CLI для product Electron resources | ✅ Работает |
 | E3 | **node_repl MCP auto-register** | `codex mcp add node_repl` | Нет — CLI интеграция | Авто-добавление MCP сервера | ✅ Работает |
 | E4 | **URL scheme handlers** | `codex://`, `codex-browser-sidebar://` | Да — xdg-mime | `xdg-mime default` | ✅ Работает |
 | E5 | **Electron binary robust extraction** | Скачивание Electron при отсутствии | Нет — portable artifact | `@electron/get` + unzip | ✅ Работает |
@@ -99,7 +99,7 @@
 
 ---
 
-Product runtime is now the only supported release and plugin-validation target. The unpacked `electron dist/` launcher remains useful for local patch iteration, but it runs with `app.isPackaged=false`, starts `webview-server.js`, and may expose unstable development state or test bundled plugin versions. Browser Use and Chrome validation must use the product artifact so plugin resources, `codex`, `node`, and `node_repl` resolve from `node_modules/electron/dist/resources/`.
+Product runtime is now the only supported release and plugin-validation target. The unpacked `electron dist/` launcher remains useful for local patch iteration, but it runs with `app.isPackaged=false`, starts `webview-server.js`, and may expose unstable development state or test bundled plugin versions. Browser Use validation must use the product artifact so plugin resources, `codex`, `node`, and `node_repl` resolve from `node_modules/electron/dist/resources/`. The external Chrome plugin remains gated on a real Linux native messaging host.
 
 ## 3. Что осталось macOS-специфичным и НЕ пропатчено (GAP-анализ)
 

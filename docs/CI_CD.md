@@ -21,7 +21,7 @@ Smoke build:
 
 - runs on non-PR events
 - builds the portable Linux artifact
-- verifies the portable bundle contains product `resources/app.asar`, `app.asar.unpacked`, bundled plugin resources, `codex`, `node`, `node_repl`, and can launch under `xvfb-run` with `app.isPackaged=true`
+- verifies the portable bundle contains product `resources/app.asar`, `app.asar.unpacked`, Linux-supported bundled plugin resources, `codex`, `node`, `node_repl`, and can launch under `xvfb-run` with `app.isPackaged=true`
 - uploads the resulting archive, checksum, and build metadata as workflow artifacts
 - runs a second smoke job that converts the portable archive into an Arch `pkg.tar.zst` inside an `archlinux` container
 - installs that Arch package with `pacman -U` and runs a headless launch smoke test
@@ -188,7 +188,7 @@ Each packaged release contains:
 
 - `node_modules/electron/dist/resources/app.asar` adapted upstream application bundle
 - `node_modules/electron/dist/resources/app.asar.unpacked` rebuilt Linux native modules
-- `node_modules/electron/dist/resources/plugins`, `codex`, `node`, and `node_repl` external runtime resources
+- `node_modules/electron/dist/resources/plugins`, `codex`, `node`, and `node_repl` external runtime resources; `chrome` appears in the bundled marketplace only when `extension-host/linux/x64/extension-host` is packaged
 - `node_modules/electron/dist/resources/node.sha256`, `node_repl.sha256`, and `node_repl.runtime.env` relocatable runtime integrity metadata
 - `start.sh` portable launcher
 - `node_modules/` runtime dependencies installed from the locked tool package

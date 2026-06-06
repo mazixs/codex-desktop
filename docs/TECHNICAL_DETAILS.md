@@ -21,10 +21,10 @@ Native Node.js extensions specific to the macOS build fail to load under Linux's
 
 ## 4. Product Packaging and `isPackaged`
 * Product artifacts pack the patched app back into `resources/app.asar` and launch a renamed Electron binary (`codex-desktop`) without passing an app directory. This keeps Electron on the packaged runtime branch (`app.isPackaged = true`).
-* External runtime helpers under `resources/` include a packaged `codex` CLI symlink for bundled plugin native-host sync, relocatable checksum files, and `node_repl.runtime.env` records the pinned primary-runtime version, source URL, source SHA256, and packaged SHA256.
+* External runtime helpers under `resources/` include a packaged `codex` CLI symlink, relocatable checksum files, and `node_repl.runtime.env` records the pinned primary-runtime version, source URL, source SHA256, and packaged SHA256.
 * The old `electron dist/` flow is retained only as an unpacked development fallback. In that fallback, `webview-server.js` hosts `dist/webview` on `127.0.0.1:5175` to mimic the asset server expected by unpacked code.
 * The unpacked fallback is not a plugin validation target. It runs with `app.isPackaged = false` and can expose development-only state, dev/test bundled plugin catalog behavior, and stale `CODEX_*` runtime paths inherited from an already installed Codex Desktop process.
-* Product `start.sh` now derives Browser Use and Chrome runtime paths from the active artifact's `resources/` directory by default. This prevents an older `/opt/codex-desktop/dist/node_repl` or system `node` override from breaking the Browser Use plugin in a freshly packaged app, while `resources/codex` keeps Chrome native-host resource sync inside the packaged Electron layout. Maintainers can opt back into inherited paths only with `CODEX_DESKTOP_RESPECT_RUNTIME_ENV=1`.
+* Product `start.sh` now derives Browser Use runtime paths from the active artifact's `resources/` directory by default. This prevents an older `/opt/codex-desktop/dist/node_repl` or system `node` override from breaking the Browser Use plugin in a freshly packaged app. Maintainers can opt back into inherited paths only with `CODEX_DESKTOP_RESPECT_RUNTIME_ENV=1`.
 
 ## 5. Main Process Patching (`main.js`)
 Minified JavaScript requires exact structural `sed` replacements:
@@ -74,9 +74,9 @@ The current maintenance baseline also includes:
 
 ## 9. Dynamic Browser Detection & Profile Matching on Linux
 
-* **The Problem:** The upstream Google Chrome plugin expects `google-chrome` or `chrome` to be available in PATH. However, on many Linux distributions (such as Arch Linux), the binary is named `google-chrome-stable`. Additionally, if Google Chrome is not found, the plugin attempts to fall back to downloading Playwright's bundled Chromium, which is undesired.
+* **The Problem:** The upstream Google Chrome plugin expects `google-chrome` or `chrome` to be available in PATH, and it also needs a platform-specific native messaging host under `extension-host/linux/x64/extension-host`. The macOS DMG currently ships a macOS host, so Linux packages must not auto-install the Chrome plugin unless a real Linux host is present.
 * **The Fix:**
   - **Browser detection (`installed-browsers.js`):** Expanded `KNOWN_BROWSERS` configuration to check `google-chrome-stable` before `google-chrome`. Added support for Brave Browser (`brave-browser`, `brave`) and Chromium (`chromium-browser`, `chromium`) as alternative options.
   - **Launcher (`open-chrome-window.js`):** Modified the browser launch command to dynamically check for the first available binary (`google-chrome-stable`, `google-chrome`, `brave-browser`, etc.) in the PATH.
   - **Profile paths (`open-chrome-window.js` & `check-extension-installed.js`):** Patched the user data directory resolver to dynamically check `.config/google-chrome`, `.config/BraveSoftware/Brave-Browser`, and `.config/chromium` based on which one actually exists.
-  - **Native Messaging (`installManifest.mjs`):** Patched the extension native messaging host installer to write the JSON manifest to all three configuration folders, enabling the extension to work seamlessly regardless of whether the user runs Google Chrome, Brave, or Chromium.
+  - **Native Messaging (`installManifest.mjs`):** Patched the extension native messaging host installer to write the JSON manifest to all three configuration folders when the Chrome plugin is platform-complete. If the Linux native host is absent, `chrome` is excluded from the bundled marketplace so Browser Use reconciliation can still complete cleanly.
