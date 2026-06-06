@@ -46,10 +46,16 @@ pass "Linux dark/light opaque background branch present"
 grep -Fq 'linux:{label:`File Manager`' "$main_bundle" || err "Linux file manager entry not found"
 pass "Linux file manager entry present"
 
-# App menu: Linux null-menu branch exists
+# App menu: product native menu is preserved on Linux
 # shellcheck disable=SC2016
-grep -Eq 'process\.platform===`linux`\?\([A-Za-z_$][\w$]*\.Menu\.setApplicationMenu\(null\)' "$main_bundle" || err "Linux app-menu patch not found"
-pass "Linux app-menu patch present"
+if grep -Eq 'process\.platform===`linux`\?\([A-Za-z_$][\w$]*\.Menu\.setApplicationMenu\(null\)' "$main_bundle"; then
+    err "Linux app-menu nullification patch is still present"
+fi
+# shellcheck disable=SC2016
+if grep -Fq 'process.platform===`win32`||process.platform===`linux`' "$main_bundle"; then
+    err "Linux removeMenu patch is still present"
+fi
+pass "Linux product native menu is preserved"
 
 # Comment-preload: stored-anchor screenshot path
 if [ -f "$comment_preload" ]; then

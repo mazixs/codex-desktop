@@ -43,14 +43,13 @@ Minified JavaScript requires exact structural `sed` replacements:
   4. `visualEffectState:\`active\`` → `visualEffectState:null` — neutralize macOS visual effect (HUD window).
   5. `backgroundMaterial:\`mica\`` → `backgroundMaterial:null` — neutralize Windows Mica acrylic.
   6. `backgroundMaterial:\`none\`` → `backgroundMaterial:null` — neutralize Windows opaque background material.
-  7. Keep `autoHideMenuBar` Windows-only so Linux does not inherit Electron's `Alt`-to-show behavior.
-  8. Extend `removeMenu()` from Windows to Linux for each `BrowserWindow`.
-  9. Patch the global application-menu refresh path to call `Menu.setApplicationMenu(null)` on Linux, preventing the upstream menu manager from restoring `File/Edit/View/Window/Help` after startup.
+  7. Keep `autoHideMenuBar` Windows-only so Linux product windows keep the upstream native menu visible.
+  8. Preserve the upstream application menu on Linux instead of extending `removeMenu()` or forcing `Menu.setApplicationMenu(null)`. The older dev-runtime workaround made File/Edit/View/Window/Help inert in product mode.
 
 * **Key functions patched:**
   - `ap({platform, appearance, opaqueWindowsEnabled, prefersDarkColors})` — returns `{backgroundColor, backgroundMaterial}` per window type. After patching, non-transparent Linux windows return `{backgroundColor: prefersDarkColors ? dark : light, backgroundMaterial: null}` so light theme keeps its upstream light background.
   - `op({appearance, opaqueWindowsEnabled, platform})` — returns window chrome options (`vibrancy`, `transparent`, `titleBarStyle`). After patching, all macOS/Windows-specific properties are nullified.
-  - The application-menu refresh path now keeps upstream behavior on macOS/Windows but uses `Menu.setApplicationMenu(null)` on Linux so the menu bar stays absent even after startup refreshes.
+  - The application-menu refresh path is left intact on Linux so the product native menu remains functional.
 
 * **Launch flags:** `start.sh` injects `--disable-gpu-compositing` and Wayland Ozone platform flags when appropriate.
 

@@ -33,9 +33,14 @@ pass "Linux dark/light opaque background branch present in main bundle"
 grep -Fq 'linux:{label:`File Manager`' "$main_bundle" || err "Linux file manager entry not found in main bundle"
 pass "Linux file manager entry present in main bundle"
 
-# 3. Main Bundle: Application menu Linux branch
-grep -Eq 'process\.platform===`linux`\?\([A-Za-z_$][\w$]*\.Menu\.setApplicationMenu\(null\)' "$main_bundle" || err "Linux app-menu patch not found in main bundle"
-pass "Linux app-menu patch present in main bundle"
+# 3. Main Bundle: Product native menu is preserved on Linux
+if grep -Eq 'process\.platform===`linux`\?\([A-Za-z_$][\w$]*\.Menu\.setApplicationMenu\(null\)' "$main_bundle"; then
+    err "Linux app-menu nullification patch is still present in main bundle"
+fi
+if grep -Fq 'process.platform===`win32`||process.platform===`linux`' "$main_bundle"; then
+    err "Linux removeMenu patch is still present in main bundle"
+fi
+pass "Linux product native menu is preserved in main bundle"
 
 # 4. Main Bundle: setBadgeCount guard
 grep -Eq '[A-Za-z_$][\w$]*\.app\.setBadgeCount\?\.' "$main_bundle" || err "setBadgeCount guard patch not found in main bundle"

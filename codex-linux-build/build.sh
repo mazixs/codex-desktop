@@ -1394,57 +1394,6 @@ PY
         '...process.platform===`win32`||process.platform===`linux`?{autoHideMenuBar:!0}:{}' \
         '...process.platform===`win32`?{autoHideMenuBar:!0}:{}'
 
-    # Remove the native application menu entirely on Linux so it never appears.
-    # Upstream minified names drift every build, so we use regex matching.
-    # shellcheck disable=SC2016
-    python3 - "$main_bundle" <<'PY'
-import re, sys
-
-path = sys.argv[1]
-content = open(path, "r").read()
-
-# Replace all win32-only removeMenu() calls with win32||linux
-content = re.sub(
-    r'process\.platform===`win32`&&([A-Za-z_$][\w$]*)\.removeMenu\(\)',
-    r'(process.platform===`win32`||process.platform===`linux`)&&\1.removeMenu()',
-    content
-)
-
-open(path, "w").write(content)
-PY
-
-    # Upstream refreshes the global application menu after startup, which reattaches
-    # the native menubar on Linux even if the window menu was removed earlier.
-    # Force a null application menu on Linux while preserving default behavior elsewhere.
-    # Upstream minified names drift every build, so we use regex matching instead
-    # of brittle exact string replacements.
-    # shellcheck disable=SC2016
-    python3 - "$main_bundle" <<'PY'
-import re, sys
-
-path = sys.argv[1]
-content = open(path, "r").read()
-
-if 'process.platform===`linux`?(n.Menu.setApplicationMenu(null)' in content:
-    sys.exit(0)
-
-match = re.search(r'([A-Za-z_$][\w$]*)\.Menu\.setApplicationMenu\(([A-Za-z_$][\w$]*)\),([A-Za-z_$][\w$]*)\(([^)]+)\)', content)
-if not match:
-    print("WARN: Could not find setApplicationMenu call -- skipping app menu patch", file=sys.stderr)
-    sys.exit(0)
-
-ns, menu_var, func_name, func_arg = match.groups()
-needle = f"{ns}.Menu.setApplicationMenu({menu_var}),{func_name}({func_arg})"
-replacement = f"process.platform===`linux`?({ns}.Menu.setApplicationMenu(null),{func_name}({func_arg})):({ns}.Menu.setApplicationMenu({menu_var}),{func_name}({func_arg}))"
-
-if needle not in content:
-    print("WARN: Could not find setApplicationMenu needle -- skipping app menu patch", file=sys.stderr)
-    sys.exit(0)
-
-content = content.replace(needle, replacement)
-open(path, "w").write(content)
-PY
-
     # =====================================================================
     # --- Add Linux file manager support ---
     # The upstream fileManager target only defines darwin and win32 platforms.

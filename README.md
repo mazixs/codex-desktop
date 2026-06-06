@@ -58,7 +58,7 @@ The Linux patch layer focuses on making the app feel native and predictable afte
 
 - **Opaque Linux windows**: upstream transparent, vibrancy, Mica, and visual-effect settings are disabled for Linux. This prevents invisible or washed-out windows on Linux compositors.
 - **Working light and dark themes**: Linux uses explicit opaque backgrounds for both themes, including the left sidebar, so the light theme no longer becomes dim or low-contrast.
-- **Clean application chrome**: the upstream native menu bar is suppressed on Linux and kept suppressed when the app refreshes its menu internally.
+- **Product native menu**: the upstream File/Edit/View/Window/Help menu is preserved in the packaged product runtime, where it looks native and remains functional.
 - **Linux file manager support**: file and folder actions use `xdg-open` / Electron `shell.openPath`, and individual file paths open their parent directory correctly.
 - **Project opening from Linux editors**: the app can offer installed Linux tools such as VS Code, VS Code Insiders, Cursor, Windsurf, Zed, Sublime Text, Android Studio, and JetBrains IDEs when opening a project.
 - **Codex backend on Linux**: the packaged launcher wires the Electron frontend to the Linux `@openai/codex` CLI instead of the macOS-only upstream backend binary.
@@ -80,7 +80,7 @@ The Linux patch layer focuses on making the app feel native and predictable afte
 - light and dark themes are both adapted for opaque Linux rendering
 - voice input works on Linux
 - phone-based control (Computer Use) works on Linux, matching the macOS behavior
-- the Linux build suppresses the upstream native menu bar
+- the Linux build preserves the upstream native menu bar in product runtime
 - the current Linux build avoids the transparent-window and washed-out-theme glitches common in rough macOS-to-Linux ports
 
 ⚠️ **Fragile by design**

@@ -13,6 +13,7 @@ This document records recent repository maintenance work that changed the Linux 
 - Documented that the unpacked `electron dist/` developer fallback is not a stable plugin validation target because it runs with `app.isPackaged=false` and can expose development plugin state or test plugin versions.
 - Hardened `start.sh` so Browser Use, Chrome, and bundled plugin runtime paths are selected from the active product `resources/` directory by default instead of stale inherited `CODEX_*` paths.
 - Added verifier coverage that intentionally injects old `/opt/codex-desktop/dist` runtime paths and fails if Browser Use selects them.
+- Restored the upstream File/Edit/View/Window/Help native menu in product runtime by removing the legacy Linux `removeMenu()` and `Menu.setApplicationMenu(null)` patches.
 
 ## 2026-06-05
 
@@ -239,4 +240,4 @@ Migrated the main-bundle patches from exact string matching to regex-based detec
 - `./scripts/verify-portable-artifact.sh --artifacts-dir codex-linux-build/artifacts`
 - `cd codex-linux-build && pnpm run verify`
 
-The current baseline is a launchable Linux build with opaque window backgrounds, a suppressed native menu bar, a working Linux file-manager target, and packaged portable/Arch/Debian outputs.
+The current baseline is a launchable Linux product build with opaque window backgrounds, a functional native menu bar, a working Linux file-manager target, and packaged portable/Arch/Debian outputs.
